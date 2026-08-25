@@ -1,0 +1,142 @@
+package com.mohid.obd2dash.data.db
+
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+/**
+ * One drive. Kept indefinitely because it is small, and it is what the trip history
+ * and the web dashboard are built from.
+ */
+@Entity(tableName = "trips")
+data class TripEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val startedAt: Long,
+    val endedAt: Long? = null,
+    val durationMs: Long = 0,
+    /** Accumulated from phone GPS, not from the OBD2 speed PID. */
+    val distanceMeters: Double = 0.0,
+    val sampleCount: Int = 0,
+    /** True when the driver pressed start rather than it being triggered by the adapter connecting. */
+    val startedManually: Boolean = false,
+    val adapterName: String? = null,
+    val protocol: String? = null,
+    val milOn: Boolean = false,
+    val dtcCount: Int = 0,
+    /** Null until the post-trip batch upload succeeds. */
+    val syncedAt: Long? = null,
+)
+
+/**
+ * One polling tick.
+ *
+ * The four gauge metrics plus GPS get real columns because charts, the route
+ * map and the summary all query them directly. Everything else rides along in
+ * [extraValues] so adding a PID never needs a schema migration.
+ */
+@Entity(
+    tableName = "readings",
+    foreignKeys = [
+        ForeignKey(
+            entity = TripEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tripId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["tripId", "timestamp"])],
+)
+data class ReadingEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val tripId: Long,
+    val timestamp: Long,
+    val rpm: Float? = null,
+    val speedKph: Float? = null,
+    val coolantC: Float? = null,
+    val boostKpa: Float? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val gpsSpeedKph: Float? = null,
+    val extraValues: String = "",
+)
+
+/** Rolled-up min/avg/max for one metric over one trip, written when the trip ends. */
+@Entity(
+    tableName = "trip_metrics",
+    primaryKeys = ["tripId", "metricKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = TripEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tripId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("tripId")],
+)
+data class TripMetricEntity(
+    val tripId: Long,
+    val metricKey: String,
+    val minValue: Float,
+    val maxValue: Float,
+    val avgValue: Float,
+    val sampleCount: Int,
+)
+
+/** A trouble code seen during a trip, so the report can call it out. */
+@Entity(
+    tableName = "dtc_events",
+    foreignKeys = [
+        ForeignKey(
+            entity = TripEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tripId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("tripId")],
+)
+data class DtcEventEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val tripId: Long,
+    val timestamp: Long,
+    val code: String,
+    val kind: String,
+)
+
+/**
+ * Serialisation for [ReadingEntity.extraValues].
+ *
+ * Deliberately not JSON: this runs a few times a second for the whole trip, and
+ * a flat `key=value;` list parses in a single pass with no allocation beyond
+ * the resulting map.
+ */
+object MetricPack {
+
+    fun encode(values: Map<String, Float>): String {
+        if (values.isEmpty()) return ""
+        val sb = StringBuilder(values.size * 12)
+        for ((key, value) in values) {
+            if (sb.isNotEmpty()) sb.append(';')
+            sb.append(key).append('=').append(value)
+        }
+        return sb.toString()
+    }
+
+    fun decode(packed: String): Map<String, Float> {
+        if (packed.isEmpty()) return emptyMap()
+        val out = HashMap<String, Float>()
+        var i = 0
+        while (i < packed.length) {
+            val sep = packed.indexOf('=', i)
+            if (sep < 0) break
+            var end = packed.indexOf(';', sep)
+            if (end < 0) end = packed.length
+            val value = packed.substring(sep + 1, end).toFloatOrNull()
+            if (value != null) out[packed.substring(i, sep)] = value
+            i = end + 1
+        }
+        return out
+    }
+}
