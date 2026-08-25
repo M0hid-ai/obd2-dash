@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OBD2 Dash</string>
+    <string name="channel_alerts_critical_name">Critical alerts</string>
+    <string name="channel_alerts_critical_desc">Readings past a critical threshold while driving.</string>
+    <string name="channel_alerts_warning_name">Warnings</string>
+    <string name="channel_alerts_warning_desc">Readings drifting out of their normal range.</string>
+    <string name="channel_service_name">Trip logging</string>
+    <string name="channel_service_desc">Keeps the OBD2 connection alive while a trip is recording.</string>
+</resources>

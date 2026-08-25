@@ -1,0 +1,34 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Gauge sweep: green arc, then amber, then red at the top end. -->
+    <path
+        android:pathData="M 34.5 71.5 A 21 21 0 0 1 41.6 42.4"
+        android:strokeColor="#2ED573"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 44.6 40.6 A 21 21 0 0 1 63.4 40.6"
+        android:strokeColor="#FFB020"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 66.4 42.4 A 21 21 0 0 1 73.5 71.5"
+        android:strokeColor="#FF4757"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+
+    <!-- Needle pointing into the amber zone. -->
+    <path
+        android:pathData="M 54 60 L 63 44"
+        android:strokeColor="#E8ECF1"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+
+    <path
+        android:pathData="M 54 60 m -4 0 a 4 4 0 1 0 8 0 a 4 4 0 1 0 -8 0"
+        android:fillColor="#E8ECF1" />
+</vector>
