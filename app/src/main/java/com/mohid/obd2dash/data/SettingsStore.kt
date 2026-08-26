@@ -32,6 +32,60 @@ enum class PressureUnit(val label: String, val suffix: String) {
     val decimals: Int get() = if (this == KPA) 0 else 2
 }
 
+/**
+ * Which dial face the four main gauges wear.
+ *
+ * Each one is modelled on a real instrument cluster rather than being a recolour
+ * of the same drawing. SHOWCASE puts a different face on each of the four dials
+ * at once, which is the default until a favourite has been picked.
+ */
+enum class GaugeSkin(val label: String, val blurb: String) {
+    SHOWCASE(
+        "Compare all",
+        "A different face on each of the four dials, so they can be judged side by side on real data.",
+    ),
+    CLASSIC(
+        "Original",
+        "The dial this app shipped with. Thick lit track, redline printed outside it, short blade needle.",
+    ),
+    HEXA(
+        "Hexa",
+        "Hexagonal bezel, wedge graduations and a hard edged sweep, after the Lamborghini Aventador cluster.",
+    ),
+    HERITAGE(
+        "Heritage",
+        "Metal bezel, numerals printed on a black face and a full length needle, after the Porsche 911.",
+    ),
+    COCKPIT(
+        "Cockpit",
+        "One hairline ring, a puck for a pointer and a very large number, after the Audi virtual cockpit.",
+    ),
+    CIRCUIT(
+        "Circuit",
+        "A segmented shift bar bent into an arc, with a peak hold marker, after GT-R and race car displays.",
+    ),
+    ;
+
+    /**
+     * The face an individual dial should draw. Only SHOWCASE varies by position;
+     * every other choice applies to all four.
+     */
+    fun resolve(position: Int): GaugeSkin = when {
+        this != SHOWCASE -> this
+        else -> showcaseOrder[position % showcaseOrder.size]
+    }
+
+    private companion object {
+        /**
+         * Deliberately paired to the metric each face suits: the aggressive one
+         * on the tachometer, the traditional dial on road speed, the calm
+         * minimal one on coolant, and the segmented bar with peak hold on boost,
+         * where the spike is over before you can look down at it.
+         */
+        val showcaseOrder = listOf(HEXA, HERITAGE, COCKPIT, CIRCUIT)
+    }
+}
+
 data class AppSettings(
     val pollIntervalMs: Int = 300,
     val useFrameCountHint: Boolean = true,
@@ -41,6 +95,7 @@ data class AppSettings(
     val liveMode: Boolean = false,
     val alertSoundEnabled: Boolean = true,
     val pressureUnit: PressureUnit = PressureUnit.BAR,
+    val gaugeSkin: GaugeSkin = GaugeSkin.SHOWCASE,
     val thresholds: List<ThresholdRule> = DefaultThresholds.rules,
 ) {
     fun thresholdFor(metricKey: String): ThresholdRule? = thresholds.firstOrNull { it.metricKey == metricKey }
@@ -57,6 +112,7 @@ class SettingsStore(private val context: Context) {
         val liveMode = booleanPreferencesKey("liveMode")
         val alertSound = booleanPreferencesKey("alertSound")
         val pressureUnit = stringPreferencesKey("pressureUnit")
+        val gaugeSkin = stringPreferencesKey("gaugeSkin")
         val thresholds = stringSetPreferencesKey("thresholds")
     }
 
@@ -73,6 +129,9 @@ class SettingsStore(private val context: Context) {
             pressureUnit = prefs[Keys.pressureUnit]
                 ?.let { name -> PressureUnit.entries.firstOrNull { it.name == name } }
                 ?: defaults.pressureUnit,
+            gaugeSkin = prefs[Keys.gaugeSkin]
+                ?.let { name -> GaugeSkin.entries.firstOrNull { it.name == name } }
+                ?: defaults.gaugeSkin,
             thresholds = mergeThresholds(prefs[Keys.thresholds]),
         )
     }
@@ -97,6 +156,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setLiveMode(value: Boolean) = edit { it[Keys.liveMode] = value }
     suspend fun setAlertSound(value: Boolean) = edit { it[Keys.alertSound] = value }
     suspend fun setPressureUnit(value: PressureUnit) = edit { it[Keys.pressureUnit] = value.name }
+    suspend fun setGaugeSkin(value: GaugeSkin) = edit { it[Keys.gaugeSkin] = value.name }
 
     suspend fun setLastDeviceAddress(address: String?) = edit { prefs ->
         if (address == null) prefs.remove(Keys.lastDeviceAddress) else prefs[Keys.lastDeviceAddress] = address

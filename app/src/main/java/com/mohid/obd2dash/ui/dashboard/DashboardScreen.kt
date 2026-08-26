@@ -128,22 +128,30 @@ fun DashboardScreen(
     }
 }
 
+/**
+ * The four dials, each told which position it occupies so the "compare all"
+ * skin can hand out a different face per slot. Rows are centred because the
+ * faces do not all share an aspect ratio, and a hexagon is not as tall as a
+ * round bezel.
+ */
 @Composable
 private fun GaugeGrid(snapshot: MetricSnapshot, settings: AppSettings) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            PidGauge(PidRegistry.RPM, snapshot, settings, Modifier.weight(1f))
-            PidGauge(PidRegistry.SPEED, snapshot, settings, Modifier.weight(1f))
+            PidGauge(PidRegistry.RPM, snapshot, settings, 0, Modifier.weight(1f))
+            PidGauge(PidRegistry.SPEED, snapshot, settings, 1, Modifier.weight(1f))
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            PidGauge(PidRegistry.COOLANT_TEMP, snapshot, settings, Modifier.weight(1f))
-            BoostGauge(snapshot, settings, Modifier.weight(1f))
+            PidGauge(PidRegistry.COOLANT_TEMP, snapshot, settings, 2, Modifier.weight(1f))
+            BoostGauge(snapshot, settings, 3, Modifier.weight(1f))
         }
     }
 }
@@ -153,6 +161,7 @@ private fun PidGauge(
     pid: ObdPid,
     snapshot: MetricSnapshot,
     settings: AppSettings,
+    position: Int,
     modifier: Modifier = Modifier,
 ) {
     val value = snapshot[pid.key]
@@ -165,6 +174,7 @@ private fun PidGauge(
         zones = zonesFor(pid, settings.thresholdFor(pid.key), pid.displayMin, pid.displayMax),
         valueText = value?.let { pid.format(it) },
         animationMillis = settings.pollIntervalMs + 100,
+        skin = settings.gaugeSkin.resolve(position),
         modifier = modifier,
     )
 }
@@ -179,6 +189,7 @@ private fun PidGauge(
 private fun BoostGauge(
     snapshot: MetricSnapshot,
     settings: AppSettings,
+    position: Int,
     modifier: Modifier = Modifier,
 ) {
     val pid = DerivedMetrics.BOOST
@@ -199,6 +210,7 @@ private fun BoostGauge(
         origin = unit.from(0f),
         valueText = kpa?.let { "%.${unit.decimals}f".format(unit.from(it)) },
         animationMillis = settings.pollIntervalMs + 100,
+        skin = settings.gaugeSkin.resolve(position),
         modifier = modifier,
     )
 }

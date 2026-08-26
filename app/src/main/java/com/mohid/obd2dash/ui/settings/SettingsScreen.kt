@@ -18,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -43,13 +44,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.alerts.ThresholdRule
 import com.mohid.obd2dash.data.AppSettings
+import com.mohid.obd2dash.data.GaugeSkin
 import com.mohid.obd2dash.data.PressureUnit
 import com.mohid.obd2dash.obd.metricByKey
+import com.mohid.obd2dash.ui.components.GaugeZone
+import com.mohid.obd2dash.ui.components.MetricGauge
 import com.mohid.obd2dash.ui.theme.Cyan
 import com.mohid.obd2dash.ui.theme.Panel
 import com.mohid.obd2dash.ui.theme.PanelRaised
 import com.mohid.obd2dash.ui.theme.TextMuted
 import com.mohid.obd2dash.ui.theme.ZoneDanger
+import com.mohid.obd2dash.ui.theme.ZoneGood
 import com.mohid.obd2dash.ui.theme.ZoneWarn
 import kotlinx.coroutines.launch
 
@@ -101,6 +106,26 @@ fun SettingsScreen(graph: AppGraph) {
                     "less headroom; the loop never runs faster than the adapter answers.",
                 onValueChange = { scope.launch { store.setPollIntervalMs(it.toInt()) } },
             )
+        }
+
+        SectionLabel("Gauge face")
+        Text(
+            "Each face is modelled on a real instrument cluster. Compare all puts a different " +
+                "one on each of the four dials so they can be judged on live data.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+        )
+        SettingsCard {
+            Column {
+                GaugeSkin.entries.forEachIndexed { index, skin ->
+                    if (index > 0) RowDivider()
+                    SkinRow(
+                        skin = skin,
+                        selected = settings.gaugeSkin == skin,
+                        onSelect = { scope.launch { store.setGaugeSkin(skin) } },
+                    )
+                }
+            }
         }
 
         SectionLabel("Display")
@@ -284,6 +309,60 @@ private fun summarize(rule: ThresholdRule, unit: String): String {
     if (parts.isEmpty()) return "No bounds set"
     return parts.joinToString("   ") + if (unit.isEmpty()) "" else "  $unit"
 }
+
+/**
+ * One choice in the face picker, with a working dial next to it.
+ *
+ * The preview runs on a fixed sample reading rather than live data: the point
+ * is to compare how the faces draw, and four dials all sweeping at once would
+ * fight for attention instead of making the difference obvious.
+ */
+@Composable
+private fun SkinRow(skin: GaugeSkin, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Column(
+            Modifier
+                .weight(1f)
+                .padding(start = 6.dp, end = 10.dp),
+        ) {
+            Text(
+                skin.label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) Cyan else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(skin.blurb, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+        }
+        if (skin != GaugeSkin.SHOWCASE) {
+            MetricGauge(
+                label = "RPM",
+                value = PREVIEW_RPM,
+                unit = "rpm",
+                min = 0f,
+                max = 8000f,
+                zones = listOf(
+                    GaugeZone(0f, 5800f, ZoneGood),
+                    GaugeZone(5800f, 6800f, ZoneWarn),
+                    GaugeZone(6800f, 8000f, ZoneDanger),
+                ),
+                valueText = PREVIEW_RPM.toInt().toString(),
+                animationMillis = 1,
+                skin = skin,
+                modifier = Modifier.width(116.dp),
+            )
+        }
+    }
+}
+
+/** Mid range and clearly inside the healthy band, so no preview looks alarmed. */
+private const val PREVIEW_RPM = 4200f
 
 @Composable
 private fun SettingsCard(content: @Composable () -> Unit) {
