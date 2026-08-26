@@ -162,6 +162,7 @@ class ObdController(
             pollJob = null
             endTripIfRunning()
             teardownTransport()
+            clearAlerts()
             _connection.value = ConnectionState.Disconnected
             _snapshot.value = MetricSnapshot.EMPTY
             _supportedPids.value = emptyList()
@@ -261,6 +262,7 @@ class ObdController(
      */
     private fun fail(reason: String) {
         teardownTransport()
+        clearAlerts()
         _connection.value = ConnectionState.Failed(reason)
         appendLog("Failed: $reason")
     }
@@ -410,6 +412,7 @@ class ObdController(
             appendLog("Engine off for ${IDLE_DISCONNECT_MS / 60_000} minutes, closing the link")
             endTripIfRunning()
             teardownTransport()
+            clearAlerts()
             _connection.value = ConnectionState.Disconnected
             _snapshot.value = MetricSnapshot.EMPTY
             _supportedPids.value = emptyList()
@@ -573,6 +576,20 @@ class ObdController(
     }
 
     // ---- Alerts & diagnostics ---------------------------------------------
+
+    /**
+     * Drops every live alert when a session ends.
+     *
+     * An alert only clears when its metric is seen back inside its bound, so one
+     * raised on a slow-rotation PID could never recover once polling stopped: it
+     * would sit there through the next connect, already acknowledged, describing
+     * a reading from an earlier drive.
+     */
+    private fun clearAlerts() {
+        alertEngine.snapshot().forEach { notifier.clear(it.metricKey) }
+        alertEngine.reset()
+        _alerts.value = emptyList()
+    }
 
     fun acknowledgeAlert(metricKey: String) {
         alertEngine.acknowledge(metricKey)
