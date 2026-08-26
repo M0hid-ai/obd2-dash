@@ -251,7 +251,16 @@ class ObdController(
         session = null
     }
 
+    /**
+     * Enters the failed state and releases the adapter.
+     *
+     * The teardown is the important half. A failed scan used to leave the
+     * RFCOMM socket wide open, so the phone still showed the adapter as
+     * connected and no other app could claim the serial port until the process
+     * died. Failed now always means no live socket.
+     */
     private fun fail(reason: String) {
+        teardownTransport()
         _connection.value = ConnectionState.Failed(reason)
         appendLog("Failed: $reason")
     }
