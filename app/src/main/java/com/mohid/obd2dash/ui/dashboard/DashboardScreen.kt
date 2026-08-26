@@ -300,7 +300,7 @@ private fun TripControls(
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                if (trip.startedManually) "Started manually" else "Started automatically on connect",
+                                if (trip.startedManually) "Started manually" else "Started automatically",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextMuted,
                             )
@@ -332,7 +332,7 @@ private fun TripControls(
                             Text("No trip recording", style = MaterialTheme.typography.titleSmall)
                             Text(
                                 if (connected) {
-                                    "Start one manually, or let it start on the next connect."
+                                    "Press Start when you are ready to record."
                                 } else {
                                     "Connect to the adapter first."
                                 },

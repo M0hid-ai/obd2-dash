@@ -41,6 +41,7 @@ that single number tells you more than the rest of the dashboard combined.
 | **Nothing hardcoded per ECU** | Supported PIDs are discovered at connect time from the `0100` / `0120` / `0140` bitmasks. 60+ Mode 01 parameters decodable. |
 | **Alerts that do not flap** | A breach must hold for three samples before it fires, and must recover past a hysteresis margin before it clears. |
 | **Trips survive the glovebox** | A foreground service keeps logging through screen off and app backgrounding. Trips left open by a crash are closed on next launch. |
+| **Knows when the engine stops** | The adapter is powered from OBD pin 16, so it stays alive with the car locked and a Bluetooth drop never means "engine off". Engine state is read from RPM instead. |
 | **Everything hand drawn** | Gauges, charts and the route trace are Compose canvas. No charting library, no Maps API key. |
 | **The route is the data** | The GPS track is coloured by speed, so where you pressed on shows up without reading a chart. |
 
@@ -299,7 +300,7 @@ The UI has no instrumented tests. It was verified by running it.
 - [x] Runtime PID discovery
 - [x] Four gauge dashboard with threshold colour bands
 - [x] All metrics screen
-- [x] Room trip logging, automatic and manual start/stop
+- [x] Room trip logging, manual start/stop with an optional automatic mode
 - [x] Threshold alerts, chime plus persistent banner
 - [x] Trip reports with charts and route
 - [x] Editable thresholds and settings

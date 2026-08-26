@@ -37,7 +37,7 @@ data class AppSettings(
     val useFrameCountHint: Boolean = true,
     val demoMode: Boolean = false,
     val lastDeviceAddress: String? = null,
-    val autoStartTripOnConnect: Boolean = true,
+    val autoStartTripOnConnect: Boolean = false,
     val liveMode: Boolean = false,
     val alertSoundEnabled: Boolean = true,
     val pressureUnit: PressureUnit = PressureUnit.BAR,

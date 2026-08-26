@@ -76,8 +76,10 @@ fun SettingsScreen(graph: AppGraph) {
             )
             RowDivider()
             SwitchRow(
-                title = "Start trips automatically",
-                subtitle = "Treat connecting to the adapter as the engine coming on.",
+                title = "Automatic trips",
+                subtitle = "Begin a trip when the engine starts and end it when it stops. " +
+                    "Off means the Start and Stop buttons are the only things that " +
+                    "open or close a trip.",
                 checked = settings.autoStartTripOnConnect,
                 onCheckedChange = { scope.launch { store.setAutoStartTrip(it) } },
             )

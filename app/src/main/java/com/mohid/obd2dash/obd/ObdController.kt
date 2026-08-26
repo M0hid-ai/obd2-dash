@@ -375,10 +375,11 @@ class ObdController(
                     sawEngineOff = true
                     val since = engineOffSince ?: now.also { engineOffSince = it }
                     val stoppedFor = now - since
-                    // A trip the driver started by hand is an explicit override,
-                    // so the engine going quiet does not cancel it.
-                    val autoTrip = (_trip.value as? TripState.Recording)?.takeIf { !it.startedManually }
-                    if (stoppedFor >= ENGINE_OFF_GRACE_MS && autoTrip != null) {
+                    // Ending on engine-off belongs to the same setting that
+                    // starts on engine-on. With it off the driver owns both
+                    // ends, and the idle shutdown below is the only backstop.
+                    val autoEnd = settings.autoStartTripOnConnect && recorder.activeTripId != null
+                    if (stoppedFor >= ENGINE_OFF_GRACE_MS && autoEnd) {
                         appendLog("Engine stopped, ending trip")
                         endTripIfRunning()
                     }
