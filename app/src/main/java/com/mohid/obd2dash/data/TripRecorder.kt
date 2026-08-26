@@ -31,6 +31,9 @@ class TripRecorder(private val db: AppDatabase) {
         const val BATCH_SIZE = 40
         const val MAX_BUFFER_AGE_MS = 5_000L
 
+        /** Roughly 3.6 km/h. Below this a GPS speed is indistinguishable from noise. */
+        const val MIN_GPS_SPEED_MPS = 1.0f
+
         /** Metrics stored as first-class columns rather than in the packed blob. */
         val COLUMN_METRICS = setOf(
             PidRegistry.RPM.key,
@@ -58,6 +61,13 @@ class TripRecorder(private val db: AppDatabase) {
     private val accumulators = HashMap<String, Accumulator>()
     private val distance = DistanceAccumulator()
     private val pendingCodes = ArrayList<DtcEventEntity>()
+
+    /**
+     * Latest speed from the ECU, used to decide whether GPS movement is real.
+     * Written by the poll loop and read by the location coroutine, hence volatile.
+     */
+    @Volatile
+    private var obdSpeedKph: Float? = null
 
     private var tripId: Long? = null
     private var startedAt = 0L
@@ -95,8 +105,18 @@ class TripRecorder(private val db: AppDatabase) {
     }
 
     fun onLocation(location: Location) {
-        distance.add(location)
+        distance.add(location, moving = isMoving(location))
         lastLocation = location
+    }
+
+    /**
+     * GPS on its own cannot tell a parked car from a drifting fix, so the OBD
+     * speed PID gates it. GPS speed is only the fallback, for an ECU that does
+     * not report speed at all.
+     */
+    private fun isMoving(location: Location): Boolean {
+        obdSpeedKph?.let { return it > 0f }
+        return location.hasSpeed() && location.speed > MIN_GPS_SPEED_MPS
     }
 
     fun onTroubleCodes(codes: List<DiagnosticCode>, now: Long = System.currentTimeMillis()) {
@@ -122,6 +142,7 @@ class TripRecorder(private val db: AppDatabase) {
         if (snapshot.isEmpty) return
 
         sampleCount++
+        obdSpeedKph = snapshot[PidRegistry.SPEED.key]
         for ((key, value) in snapshot.values) {
             accumulators.getOrPut(key) { Accumulator() }.add(value)
         }
@@ -225,6 +246,7 @@ class TripRecorder(private val db: AppDatabase) {
         accumulators.clear()
         pendingCodes.clear()
         distance.reset()
+        obdSpeedKph = null
         tripId = null
         sampleCount = 0
         milOn = false

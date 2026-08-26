@@ -85,6 +85,20 @@ class ObdController(
 
         const val BARO_REFRESH_MS = 60_000L
         const val DTC_POLL_MS = 30_000L
+
+        /**
+         * How long the engine must stay stopped before the trip is closed.
+         * Generous on purpose: cars with idle stop cut the engine at lights, and
+         * splitting a commute in half at every red light would be worse than
+         * running a few seconds long.
+         */
+        const val ENGINE_OFF_GRACE_MS = 90_000L
+
+        /** After this much engine-off time, give up the link entirely. */
+        const val IDLE_DISCONNECT_MS = 300_000L
+
+        /** Above this the engine is turning. Cranking and noise sit below it. */
+        const val RUNNING_RPM = 50f
         const val MAX_RECONNECT_ATTEMPTS = 3
         const val RECONNECT_BACKOFF_MS = 1_500L
     }
@@ -215,9 +229,9 @@ class ObdController(
             demo = deviceAddress == null,
         )
 
-        if (settings.autoStartTripOnConnect && recorder.activeTripId == null) {
-            beginTrip(manual = false, adapter = adapter, transportName = newTransport.name)
-        }
+        // Trips are not started here. Connecting only means the adapter has
+        // power, which it has whenever the car is parked too. The poll loop
+        // starts a trip once it can see the engine actually running.
     }
 
     private fun buildTransport(deviceAddress: String?): ObdTransport {
@@ -275,8 +289,20 @@ class ObdController(
         var lastBaroAt = 0L
         var lastDtcAt = 0L
         var failures = 0
+        var engineOffSince: Long? = null
+        var idleShutdown = false
 
         withContext(Dispatchers.IO) {
+            // Boost is MAP minus ambient, so it needs a barometric reference from
+            // the very first sample. Left to its slot in the 60 second rotation
+            // this PID can be two minutes away, and every reading until then is
+            // offset by the gap between real ambient and the sea-level fallback.
+            occasional.firstOrNull { it.key == PidRegistry.BAROMETRIC.key }?.let { baro ->
+                val now = System.currentTimeMillis()
+                readInto(active, baro, values, updatedAt, noDataCount, demoted, now)
+                lastBaroAt = now
+            }
+
             while (isActive) {
                 val cycleStart = SystemClock.elapsedRealtime()
                 val now = System.currentTimeMillis()
@@ -318,6 +344,28 @@ class ObdController(
                 recorder.record(snapshot)
                 publishTripProgress()
 
+                if (isEngineRunning(values)) {
+                    engineOffSince = null
+                    if (recorder.activeTripId == null && settings.autoStartTripOnConnect) {
+                        val state = _connection.value as? ConnectionState.Connected
+                        beginTrip(false, state?.adapter, state?.transportName)
+                    }
+                } else {
+                    val since = engineOffSince ?: now.also { engineOffSince = it }
+                    val stoppedFor = now - since
+                    // A trip the driver started by hand is an explicit override,
+                    // so the engine going quiet does not cancel it.
+                    val autoTrip = (_trip.value as? TripState.Recording)?.takeIf { !it.startedManually }
+                    if (stoppedFor >= ENGINE_OFF_GRACE_MS && autoTrip != null) {
+                        appendLog("Engine stopped, ending trip")
+                        endTripIfRunning()
+                    }
+                    if (stoppedFor >= IDLE_DISCONNECT_MS) {
+                        idleShutdown = true
+                        return@withContext
+                    }
+                }
+
                 if (now - lastDtcAt >= DTC_POLL_MS) {
                     lastDtcAt = now
                     pollTroubleCodes(active, now)
@@ -334,6 +382,32 @@ class ObdController(
                 if (remaining > 0) delay(remaining)
             }
         }
+
+        if (idleShutdown) {
+            appendLog("Engine off for ${IDLE_DISCONNECT_MS / 60_000} minutes, closing the link")
+            endTripIfRunning()
+            teardownTransport()
+            _connection.value = ConnectionState.Disconnected
+            _snapshot.value = MetricSnapshot.EMPTY
+            _supportedPids.value = emptyList()
+        }
+    }
+
+    /**
+     * Whether the engine is actually turning.
+     *
+     * This cannot be inferred from the connection. The adapter draws power from
+     * OBD pin 16, which is live whether or not the key is in, so it stays paired
+     * and answering with the car locked and the driver indoors.
+     *
+     * RPM is the primary signal. Run time since engine start is the fallback for
+     * an ECU that does not publish RPM. With neither, assume the engine is
+     * running rather than cutting a real drive short.
+     */
+    private fun isEngineRunning(values: Map<String, Float>): Boolean {
+        values[PidRegistry.RPM.key]?.let { return it > RUNNING_RPM }
+        values["runTime"]?.let { return it > 0f }
+        return true
     }
 
     /** @return false when the link is dead and the connection must be rebuilt. */

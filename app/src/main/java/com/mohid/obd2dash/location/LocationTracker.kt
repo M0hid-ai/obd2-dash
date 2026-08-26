@@ -76,8 +76,21 @@ class DistanceAccumulator {
     var totalMeters: Double = 0.0
         private set
 
-    fun add(location: Location) {
+    /**
+     * @param moving whether the vehicle is actually under way. A stationary car
+     * still produces fixes that wander by several metres at a time, and every
+     * one of those would otherwise be counted as distance travelled.
+     */
+    fun add(location: Location, moving: Boolean) {
         if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return
+
+        if (!moving) {
+            // Re-anchor while parked so that drift is discarded rather than
+            // accumulated, and so the first real step is measured from here.
+            last = location
+            return
+        }
+
         val previous = last
         if (previous == null) {
             last = location

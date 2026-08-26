@@ -73,7 +73,15 @@ class ObdSession(
         // it can take a few seconds and reply with SEARCHING... first.
         send("0100", 10_000L)
 
-        val protocol = ElmProtocol.sanitize(send("ATDP", AT_TIMEOUT_MS))
+        // ATDP answers in prose, not hex, so the usual sanitiser would strip
+        // the spaces out of "AUTO, ISO 15765-4 (CAN 11/500)" and leave one
+        // long unbreakable token that no label can wrap. lines() copes with
+        // either line ending the adapter chooses to use.
+        val protocol = send("ATDP", AT_TIMEOUT_MS)
+            .lines()
+            .joinToString(" ")
+            .replace(">", "")
+            .trim()
             .ifBlank { "unknown" }
 
         Log.i(TAG, "Adapter=$version protocol=$protocol")
