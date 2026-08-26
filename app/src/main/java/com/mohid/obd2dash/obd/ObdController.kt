@@ -280,7 +280,12 @@ class ObdController(
         val occasional = supported.filter { it.key in PidRegistry.rarelyChanging }
 
         if (fastTier.isEmpty() && slowTier.isEmpty()) {
-            fail("The ECU did not report any readable PIDs.")
+            // Getting this far means the adapter answered the whole handshake,
+            // so the adapter is fine and it is the ECU that is not listening.
+            // On a car with permanently powered OBD pin 16 that is almost
+            // always simply the ignition being off.
+            endTripIfRunning()
+            fail("Adapter is fine but the ECU is not answering. Switch the ignition on.")
             return
         }
 

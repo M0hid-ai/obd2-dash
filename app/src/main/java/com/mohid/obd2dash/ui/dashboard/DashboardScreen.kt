@@ -247,7 +247,7 @@ private fun ConnectionHeader(
                     detail,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextMuted,
-                    maxLines = 2,
+                    maxLines = 3,
                 )
             }
 
