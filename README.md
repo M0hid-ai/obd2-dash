@@ -12,8 +12,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 <img src="docs/screenshots/dashboard-alert.png" width="260" alt="Live dashboard with a critical alert" />
+<img src="docs/screenshots/trip-report.png" width="260" alt="Trip report with a speed-coloured route" />
 <img src="docs/screenshots/all-metrics.png" width="260" alt="All metrics screen" />
-<img src="docs/screenshots/trip-report.png" width="260" alt="Trip report with charts" />
 
 </div>
 
@@ -42,6 +42,7 @@ that single number tells you more than the rest of the dashboard combined.
 | **Alerts that do not flap** | A breach must hold for three samples before it fires, and must recover past a hysteresis margin before it clears. |
 | **Trips survive the glovebox** | A foreground service keeps logging through screen off and app backgrounding. Trips left open by a crash are closed on next launch. |
 | **Everything hand drawn** | Gauges, charts and the route trace are Compose canvas. No charting library, no Maps API key. |
+| **The route is the data** | The GPS track is coloured by speed, so where you pressed on shows up without reading a chart. |
 
 ## Screens
 
@@ -52,12 +53,12 @@ that single number tells you more than the rest of the dashboard combined.
     <td align="center"><b>Adapter</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/dashboard-warning.png" width="230" alt="Dashboard, warning state" /></td>
+    <td><img src="docs/screenshots/dashboard-live.png" width="230" alt="Live dashboard" /></td>
     <td><img src="docs/screenshots/all-metrics.png" width="230" alt="All metrics" /></td>
     <td><img src="docs/screenshots/adapter.png" width="230" alt="Adapter and session log" /></td>
   </tr>
   <tr>
-    <td>Four dials with colour bands baked in, so out of range is obvious without reading the number.</td>
+    <td>Redline printed outside the track, a bloom on the lit arc, tapered pointer. Boost fills from zero, so vacuum reads one way and boost the other.</td>
     <td>Every other PID the ECU answers, grouped, with a staleness dim on the slow tier.</td>
     <td>Pick a paired adapter, watch the handshake, see the achieved sample rate.</td>
   </tr>
@@ -73,7 +74,7 @@ that single number tells you more than the rest of the dashboard combined.
   </tr>
   <tr>
     <td>Every drive, kept indefinitely.</td>
-    <td>Scrubbable charts per metric, plus min/avg/max for everything logged.</td>
+    <td>Scrubbable charts with the peak marked, plus min/avg/max for everything logged.</td>
     <td>Defaults tuned for the KF-VET. Edit any bound, leave one blank to stop checking it.</td>
   </tr>
 </table>
@@ -249,10 +250,19 @@ the database and have a retention hook waiting for a policy.
 <br>
 
 A basemap needs an API key checked into the project and a network round trip to display a route the
-phone already recorded. The shape of the drive is the useful part, so the route is a plain polyline
-on a canvas, with latitude corrected for longitude convergence so it is not stretched east to west.
+phone already recorded. The shape of the drive is the useful part, so the route is drawn on a canvas,
+with latitude corrected for longitude convergence so it is not stretched east to west.
 
-Swap `RouteTrace` for a Maps composable if you ever want the real thing.
+It is also coloured by speed, which is the thing a basemap cannot give you. A grey line on a map tells
+you where you went; a track that runs cool through the roundabouts and warm down the straight tells
+you how you drove there.
+
+One wrinkle worth knowing about: a phone hands out its stale last known position until the first real
+fix lands, and that can be hundreds of kilometres away. Those points are rejected before they are
+stored, and the renderer additionally keeps only the longest unbroken run of the track, so an old trip
+carrying a teleport still draws correctly.
+
+Swap `RouteTrace` for a Maps composable if you ever want the real thing underneath.
 
 </details>
 

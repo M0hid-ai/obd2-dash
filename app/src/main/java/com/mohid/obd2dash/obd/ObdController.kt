@@ -305,6 +305,10 @@ class ObdController(
         var failures = 0
         var engineOffSince: Long? = null
         var idleShutdown = false
+        // Edge triggered: a trip begins when the engine *starts*, not merely
+        // whenever it happens to be running. Otherwise pressing Stop mid-drive
+        // would open a fresh trip on the very next cycle.
+        var sawEngineOff = true
 
         withContext(Dispatchers.IO) {
             // Boost is MAP minus ambient, so it needs a barometric reference from
@@ -360,11 +364,15 @@ class ObdController(
 
                 if (isEngineRunning(values)) {
                     engineOffSince = null
-                    if (recorder.activeTripId == null && settings.autoStartTripOnConnect) {
-                        val state = _connection.value as? ConnectionState.Connected
-                        beginTrip(false, state?.adapter, state?.transportName)
+                    if (sawEngineOff) {
+                        sawEngineOff = false
+                        if (recorder.activeTripId == null && settings.autoStartTripOnConnect) {
+                            val state = _connection.value as? ConnectionState.Connected
+                            beginTrip(false, state?.adapter, state?.transportName)
+                        }
                     }
                 } else {
+                    sawEngineOff = true
                     val since = engineOffSince ?: now.also { engineOffSince = it }
                     val stoppedFor = now - since
                     // A trip the driver started by hand is an explicit override,

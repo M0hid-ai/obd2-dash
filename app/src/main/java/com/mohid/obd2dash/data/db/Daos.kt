@@ -58,7 +58,10 @@ interface ReadingDao {
     @Query("SELECT COUNT(*) FROM readings WHERE tripId = :tripId")
     suspend fun countForTrip(tripId: Long): Int
 
-    @Query("SELECT latitude, longitude FROM readings WHERE tripId = :tripId AND latitude IS NOT NULL ORDER BY timestamp")
+    @Query(
+        "SELECT latitude, longitude, speedKph FROM readings " +
+            "WHERE tripId = :tripId AND latitude IS NOT NULL ORDER BY timestamp",
+    )
     suspend fun routeForTrip(tripId: Long): List<RoutePoint>
 
     /** Retention hook: raw samples are the bulk of the database, trip summaries are not. */
@@ -66,9 +69,11 @@ interface ReadingDao {
     suspend fun deleteReadingsBefore(before: Long): Int
 }
 
+/** A point on the logged track. Speed rides along so the route can be coloured by it. */
 data class RoutePoint(
     val latitude: Double,
     val longitude: Double,
+    val speedKph: Float?,
 )
 
 @Dao

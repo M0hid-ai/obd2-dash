@@ -80,30 +80,41 @@ class DistanceAccumulator {
      * @param moving whether the vehicle is actually under way. A stationary car
      * still produces fixes that wander by several metres at a time, and every
      * one of those would otherwise be counted as distance travelled.
+     *
+     * @return true when this fix is corroborated by the one before it, meaning
+     * it belongs to a continuous track. A very first fix, or one that has
+     * teleported, anchors the accumulator and returns false: a position nothing
+     * agrees with should not reach the route either.
      */
-    fun add(location: Location, moving: Boolean) {
-        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return
-
-        if (!moving) {
-            // Re-anchor while parked so that drift is discarded rather than
-            // accumulated, and so the first real step is measured from here.
-            last = location
-            return
-        }
+    fun add(location: Location, moving: Boolean): Boolean {
+        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return false
 
         val previous = last
         if (previous == null) {
             last = location
-            return
+            return false
         }
+
         val step = previous.distanceTo(location)
-        if (step in MIN_STEP_M..MAX_STEP_M) {
+        if (step > MAX_STEP_M) {
+            // Re-anchor without counting the jump, and disown the position.
+            last = location
+            return false
+        }
+
+        if (!moving) {
+            // Re-anchor while parked so drift is discarded, not accumulated.
+            last = location
+            return true
+        }
+
+        // Below the minimum the fix is held so small genuine steps can add up
+        // rather than each being discarded as noise.
+        if (step >= MIN_STEP_M) {
             totalMeters += step
             last = location
-        } else if (step > MAX_STEP_M) {
-            // Re-anchor without counting the jump.
-            last = location
         }
+        return true
     }
 
     fun reset() {

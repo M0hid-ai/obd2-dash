@@ -105,8 +105,13 @@ class TripRecorder(private val db: AppDatabase) {
     }
 
     fun onLocation(location: Location) {
-        distance.add(location, moving = isMoving(location))
-        lastLocation = location
+        // A phone hands out its stale last-known position until the first real
+        // fix lands, which can be hundreds of kilometres from where the car
+        // actually is. Keeping that off the route matters more than having a
+        // position for the opening second or two of a trip.
+        if (distance.add(location, moving = isMoving(location))) {
+            lastLocation = location
+        }
     }
 
     /**

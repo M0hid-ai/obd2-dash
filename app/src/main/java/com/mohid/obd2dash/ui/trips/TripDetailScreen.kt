@@ -40,6 +40,7 @@ import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.data.SeriesPoint
 import com.mohid.obd2dash.data.db.TripMetricEntity
 import com.mohid.obd2dash.obd.metricByKey
+import com.mohid.obd2dash.ui.components.RouteSample
 import com.mohid.obd2dash.ui.components.RouteTrace
 import com.mohid.obd2dash.ui.components.StatTile
 import com.mohid.obd2dash.ui.components.TripLineChart
@@ -70,12 +71,13 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
     var metricKeys by remember(tripId) { mutableStateOf<List<String>>(emptyList()) }
     var selectedMetric by remember(tripId) { mutableStateOf<String?>(null) }
     var series by remember(tripId) { mutableStateOf<List<SeriesPoint>>(emptyList()) }
-    var route by remember(tripId) { mutableStateOf<List<Pair<Double, Double>>>(emptyList()) }
+    var route by remember(tripId) { mutableStateOf<List<RouteSample>>(emptyList()) }
 
     LaunchedEffect(tripId) {
         metricKeys = graph.tripRepository.recordedMetrics(tripId)
         selectedMetric = metricKeys.firstOrNull()
-        route = graph.tripRepository.route(tripId).map { it.latitude to it.longitude }
+        route = graph.tripRepository.route(tripId)
+            .map { RouteSample(it.latitude, it.longitude, it.speedKph) }
     }
 
     LaunchedEffect(tripId, selectedMetric) {
@@ -145,8 +147,7 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
             SectionLabel("Route")
             Surface(color = PanelRaised, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 RouteTrace(
-                    points = route,
-                    color = Cyan,
+                    rawSamples = route,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)

@@ -196,6 +196,7 @@ private fun BoostGauge(
         min = unit.from(pid.displayMin),
         max = unit.from(pid.displayMax),
         zones = zones,
+        origin = unit.from(0f),
         valueText = kpa?.let { "%.${unit.decimals}f".format(unit.from(it)) },
         animationMillis = settings.pollIntervalMs + 100,
         modifier = modifier,
