@@ -26,6 +26,7 @@ import androidx.navigation.navArgument
 import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.ui.connect.ConnectScreen
 import com.mohid.obd2dash.ui.dashboard.DashboardScreen
+import com.mohid.obd2dash.ui.hud.HudScreen
 import com.mohid.obd2dash.ui.metrics.AllMetricsScreen
 import com.mohid.obd2dash.ui.settings.SettingsScreen
 import com.mohid.obd2dash.ui.theme.Cyan
@@ -49,6 +50,7 @@ private val bottomBarItems = listOf(
 )
 
 const val ROUTE_CONNECT = "connect"
+const val ROUTE_HUD = "hud"
 const val ROUTE_TRIP_DETAIL = "trip/{tripId}"
 
 fun tripDetailRoute(tripId: Long) = "trip/$tripId"
@@ -101,6 +103,7 @@ fun AppNav(graph: AppGraph) {
                     graph = graph,
                     onOpenConnect = { navController.navigate(ROUTE_CONNECT) },
                     onOpenTrip = { navController.navigate(tripDetailRoute(it)) },
+                    onOpenHud = { navController.navigate(ROUTE_HUD) },
                 )
             }
             composable(Destination.Metrics.route) {
@@ -117,6 +120,9 @@ fun AppNav(graph: AppGraph) {
             }
             composable(ROUTE_CONNECT) {
                 ConnectScreen(graph = graph, onBack = { navController.popBackStack() })
+            }
+            composable(ROUTE_HUD) {
+                HudScreen(graph = graph, onBack = { navController.popBackStack() })
             }
             composable(
                 route = ROUTE_TRIP_DETAIL,

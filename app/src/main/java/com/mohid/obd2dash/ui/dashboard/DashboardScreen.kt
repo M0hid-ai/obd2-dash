@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -27,7 +28,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,6 +54,7 @@ import com.mohid.obd2dash.ui.components.GaugeZone
 import com.mohid.obd2dash.ui.components.MetricGauge
 import com.mohid.obd2dash.ui.components.PushStartButton
 import com.mohid.obd2dash.ui.components.PushStartCaption
+import com.mohid.obd2dash.ui.components.ShiftLightBar
 import com.mohid.obd2dash.ui.components.StatTile
 import com.mohid.obd2dash.ui.components.formatElapsed
 import com.mohid.obd2dash.ui.components.zonesFor
@@ -71,6 +75,7 @@ fun DashboardScreen(
     graph: AppGraph,
     onOpenConnect: () -> Unit,
     onOpenTrip: (Long) -> Unit,
+    onOpenHud: () -> Unit,
 ) {
     val context = LocalContext.current
     val connection by graph.controller.connection.collectAsStateWithLifecycle()
@@ -80,51 +85,76 @@ fun DashboardScreen(
     val lastFinished by graph.controller.lastFinishedTrip.collectAsStateWithLifecycle()
     val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ConnectionHeader(
-            connection = connection,
-            demoMode = settings.demoMode,
-            onConnect = {
-                val address = if (settings.demoMode) null else settings.lastDeviceAddress
-                if (!settings.demoMode && address == null) {
-                    onOpenConnect()
-                } else {
-                    ObdService.start(context, address)
-                }
-            },
-            onDisconnect = { ObdService.stop(context) },
-            onOpenConnect = onOpenConnect,
+    // Bumped exactly once per adapter connection, never per sample, so it
+    // reads as "the car just started" rather than firing on every reading.
+    var sweepToken by remember { mutableIntStateOf(0) }
+    var wasConnected by remember { mutableStateOf(false) }
+    LaunchedEffect(connection) {
+        val isConnected = connection is ConnectionState.Connected
+        if (isConnected && !wasConnected) sweepToken++
+        wasConnected = isConnected
+    }
+    val sweepKey: Any? = if (sweepToken == 0) null else sweepToken
+
+    val rpmRule = settings.thresholdFor(PidRegistry.RPM.key)
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Edge to edge and outside the screen's padding on purpose: an
+        // aftermarket shift light is bolted across the dash, not tucked
+        // inside a card.
+        ShiftLightBar(
+            rpm = snapshot[PidRegistry.RPM.key],
+            warnAt = rpmRule?.warnAbove,
+            criticalAt = rpmRule?.criticalAbove,
         )
 
-        AlertBanner(
-            alerts = alerts,
-            onAcknowledgeAll = { graph.controller.acknowledgeAllAlerts() },
-        )
-
-        lastFinished?.let { tripId ->
-            FinishedTripPrompt(
-                onOpen = {
-                    graph.controller.consumeLastFinishedTrip()
-                    onOpenTrip(tripId)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ConnectionHeader(
+                connection = connection,
+                demoMode = settings.demoMode,
+                onConnect = {
+                    val address = if (settings.demoMode) null else settings.lastDeviceAddress
+                    if (!settings.demoMode && address == null) {
+                        onOpenConnect()
+                    } else {
+                        ObdService.start(context, address)
+                    }
                 },
-                onDismiss = { graph.controller.consumeLastFinishedTrip() },
+                onDisconnect = { ObdService.stop(context) },
+                onOpenConnect = onOpenConnect,
+                onOpenHud = onOpenHud,
+            )
+
+            AlertBanner(
+                alerts = alerts,
+                onAcknowledgeAll = { graph.controller.acknowledgeAllAlerts() },
+            )
+
+            lastFinished?.let { tripId ->
+                FinishedTripPrompt(
+                    onOpen = {
+                        graph.controller.consumeLastFinishedTrip()
+                        onOpenTrip(tripId)
+                    },
+                    onDismiss = { graph.controller.consumeLastFinishedTrip() },
+                )
+            }
+
+            GaugeGrid(snapshot = snapshot, settings = settings, sweepKey = sweepKey)
+
+            TripControls(
+                trip = trip,
+                connected = connection is ConnectionState.Connected,
+                onStart = { graph.controller.startTrip() },
+                onStop = { graph.controller.stopTrip() },
             )
         }
-
-        GaugeGrid(snapshot = snapshot, settings = settings)
-
-        TripControls(
-            trip = trip,
-            connected = connection is ConnectionState.Connected,
-            onStart = { graph.controller.startTrip() },
-            onStop = { graph.controller.stopTrip() },
-        )
     }
 }
 
@@ -135,23 +165,23 @@ fun DashboardScreen(
  * round bezel.
  */
 @Composable
-private fun GaugeGrid(snapshot: MetricSnapshot, settings: AppSettings) {
+private fun GaugeGrid(snapshot: MetricSnapshot, settings: AppSettings, sweepKey: Any?) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            PidGauge(PidRegistry.RPM, snapshot, settings, 0, Modifier.weight(1f))
-            PidGauge(PidRegistry.SPEED, snapshot, settings, 1, Modifier.weight(1f))
+            PidGauge(PidRegistry.RPM, snapshot, settings, 0, sweepKey, Modifier.weight(1f))
+            PidGauge(PidRegistry.SPEED, snapshot, settings, 1, sweepKey, Modifier.weight(1f))
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            PidGauge(PidRegistry.COOLANT_TEMP, snapshot, settings, 2, Modifier.weight(1f))
-            BoostGauge(snapshot, settings, 3, Modifier.weight(1f))
+            PidGauge(PidRegistry.COOLANT_TEMP, snapshot, settings, 2, sweepKey, Modifier.weight(1f))
+            BoostGauge(snapshot, settings, 3, sweepKey, Modifier.weight(1f))
         }
     }
 }
@@ -162,6 +192,7 @@ private fun PidGauge(
     snapshot: MetricSnapshot,
     settings: AppSettings,
     position: Int,
+    sweepKey: Any?,
     modifier: Modifier = Modifier,
 ) {
     val value = snapshot[pid.key]
@@ -175,6 +206,7 @@ private fun PidGauge(
         valueText = value?.let { pid.format(it) },
         animationMillis = settings.pollIntervalMs + 100,
         skin = settings.gaugeSkin.resolve(position),
+        sweepKey = sweepKey,
         modifier = modifier,
     )
 }
@@ -190,6 +222,7 @@ private fun BoostGauge(
     snapshot: MetricSnapshot,
     settings: AppSettings,
     position: Int,
+    sweepKey: Any?,
     modifier: Modifier = Modifier,
 ) {
     val pid = DerivedMetrics.BOOST
@@ -211,6 +244,7 @@ private fun BoostGauge(
         valueText = kpa?.let { "%.${unit.decimals}f".format(unit.from(it)) },
         animationMillis = settings.pollIntervalMs + 100,
         skin = settings.gaugeSkin.resolve(position),
+        sweepKey = sweepKey,
         modifier = modifier,
     )
 }
@@ -222,6 +256,7 @@ private fun ConnectionHeader(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onOpenConnect: () -> Unit,
+    onOpenHud: () -> Unit,
 ) {
     Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -277,6 +312,9 @@ private fun ConnectionHeader(
             }
             TextButton(onClick = onOpenConnect) {
                 Icon(Icons.AutoMirrored.Filled.BluetoothSearching, contentDescription = "Adapters", tint = TextMuted)
+            }
+            TextButton(onClick = onOpenHud) {
+                Icon(Icons.Filled.Fullscreen, contentDescription = "Windshield HUD", tint = TextMuted)
             }
         }
     }
