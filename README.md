@@ -8,7 +8,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2025.06-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![Room](https://img.shields.io/badge/Room-2.7.2-FF6F00?style=flat-square&logo=sqlite&logoColor=white)](https://developer.android.com/training/data-storage/room)
-[![Tests](https://img.shields.io/badge/tests-42%20passing-2ED573?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-56%20passing-2ED573?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 <img src="docs/screenshots/dashboard-alert.png" width="260" alt="Live dashboard with a critical alert" />
@@ -45,7 +45,10 @@ that single number tells you more than the rest of the dashboard combined.
 | **Everything hand drawn** | Gauges, charts and the route trace are Compose canvas. No charting library, no Maps API key. |
 | **The route is the data** | The GPS track is coloured by speed, so where you pressed on shows up without reading a chart. |
 | **Nine gauge faces, one accent colour** | Hexa, Heritage in four bezel finishes, Cockpit, Circuit, or the original. Recolour the healthy band to taste, or leave the skin on Compare all and judge them side by side against live data. |
-| **Built to be glanced at, not read** | A push-start button for trip recording, a segmented shift light bar across the top of the screen, and a mirrored windshield HUD mode for a phone propped flat on the dash. |
+| **Built to be glanced at, not read** | A push-start button for trip recording and a segmented shift light bar across the top of the screen. |
+| **Finds the faults your dash hides** | The warning lamp only ever reflects *confirmed* codes. Pending codes (Mode 07) and permanent codes (Mode 0A) light nothing and are not counted by PID 0101, so both are read unconditionally, alongside the readiness monitors that reveal a recent code clear. |
+| **Sends a trip as one file** | Export any finished trip as a self-contained HTML report: tables, vector charts and the route in a single attachment with **no images at all**, or as raw CSV for a spreadsheet. |
+| **Fits itself to the car** | The dial scale, the boost/vacuum split, the protocol and how much of the PID list fits in a cycle are all decided from what the car actually answers, not from a per-vehicle config. |
 
 ## Screens
 
@@ -146,8 +149,8 @@ You cannot ask for twenty parameters at 5 Hz, so the loop spends its budget deli
 | Tier | Contents | Rate |
 |---|---|---|
 | **Fast** | RPM, speed, MAP | every cycle |
-| **Slow** | everything else the ECU supports, including throttle and engine load | one per cycle, round robin |
-| **Rare** | barometric, fuel level, odometer counters | one every 60 s |
+| **Slow** | everything else the ECU supports, including throttle and engine load | round robin, as many as the cycle budget allows |
+| **Rare** | barometric, fuel level, odometer and MIL counters | one every 60 s |
 
 Barometric pressure tracks the weather, not your right foot, so polling it at 3 Hz would be pure
 waste. It gets read once at connect and refreshed on a timer, which leaves the sample rate for the
@@ -157,6 +160,14 @@ Throttle and engine load used to sit in the fast tier too. Neither drives a gaug
 alert, and each one is a full request-response round trip added to every cycle. Moving them to the
 slow rotation bought back two reads per cycle for free.
 
+The slow tier used to read exactly **one** PID per cycle, which quietly wasted most of the budget on
+a quick link. A car answering 35 parameters needed half a minute to refresh them all, and it showed:
+the slow-tier charts in a trip report came out as visible staircases rather than curves. The loop now
+measures what a round trip actually costs, as a rolling average, and fits as many slow reads into the
+remaining budget as it can without pushing the cycle past the poll interval the gauges depend on. One
+read is always taken however tight the budget, because a starved long tail is worse than a cycle that
+runs slightly long.
+
 Measured on the bench, with the frame-count hint enabled: 254 ms per cycle, 3.9 samples/s. Measured
 on a real fifteen minute drive over an actual Bluetooth Classic connection: closer to **850 ms per
 cycle, 1.2 samples/s.** Real ECU turnaround over real radio is slower than it looks on a desk, and it
@@ -165,6 +176,68 @@ a fixed count of three samples meant a two and a half second alert delay on the 
 that a one or two second rev spike above a self-set limit came and went before the alert ever fired.
 A PID that is advertised in the support bitmask but answers `NO DATA` three times gets dropped from
 the rotation for the rest of the session.
+
+## Fitting itself to whatever is plugged in
+
+Two cars is enough to find the places where an app quietly assumes one of them. This one was written
+against a Daihatsu Move turbo and then plugged into a Nissan Dayz, which answers 35 parameters
+instead, and none of the differences that turned up needed a per-vehicle config entry:
+
+| What differs | How it is handled |
+|---|---|
+| **Which parameters exist** | Discovered from the `0100` / `0120` / `0140` support bitmasks at connect, then narrowed further: anything advertised that answers `NO DATA` three times is dropped for the session. |
+| **Turbo or naturally aspirated** | Decided from the manifold, not a setting. Only a compressor can push manifold pressure above ambient, so one reading past ambient proves forced induction and nothing proves the opposite. Until that reading arrives, the fourth dial is scaled to the vacuum the engine actually pulls and reads **Vacuum**; after it, the scale opens up and it reads **Boost**. |
+| **No MAP sensor at all** | The fourth dial shows engine load instead of a permanently blank boost gauge. |
+| **How fast the ECU answers** | The slow-tier read count per cycle is fitted to a measured round-trip cost, so a quick link refreshes the long tail several times faster and a slow one still keeps the gauges at rate. |
+| **Which protocol it speaks** | `ATSP0` first. If its auto-search gives up, the adapter is told explicitly which protocol to try, CAN first and the K-line ones after, rather than reporting the car as unreachable. |
+| **Petrol or diesel** | Bit 3 of PID 0101 byte B selects which set of readiness monitors the remaining bits mean, so a diesel gets NOx, PM filter and boost pressure rather than catalyst and secondary air. |
+| **Naming the protocol** | `ATDPN` answers with a single digit that maps to a known name. `ATDP` is prose and nicer to read, but several adapters answer it with a bare `AUTO,` when the search has only partly completed, which is useless on a trip report. |
+
+## Faults the dashboard never shows you
+
+The lamp on the cluster is not the whole picture. It only ever reflects **confirmed** faults, and
+there are three categories it says nothing about:
+
+| Category | Where it lives | Why the lamp stays off |
+|---|---|---|
+| **Pending** | Mode 07 | The ECU has seen the fault once but has not confirmed it on a second drive cycle. |
+| **Permanent** | Mode 0A | It survived a code clear. It only clears itself once the car re-passes the relevant self-test. |
+| **Incomplete monitors** | PID 0101, bytes B/C/D | Not a fault at all, but a test the ECU has not been able to run yet, so that system is simply unassessed. |
+
+This used to be a real bug rather than a missing feature. The diagnostics poll opened with:
+
+```kotlin
+if (status.dtcCount == 0 && !status.milOn) return
+```
+
+Neither pending nor permanent codes light the lamp, and neither is counted by `dtcCount`. So that
+early return fired in exactly the state a car with a pending fault reports, and the two categories
+most worth catching early were the two that were never read. All three modes are now polled on a
+rotation, one per tick, so a scan is never three round trips inside a single poll cycle.
+
+A full row of incomplete monitors is worth knowing about on its own: it is the fingerprint of a
+recent code clear or a battery disconnect. The Nissan reported *warm-ups since codes cleared* pegged
+at its 255 ceiling and 4,269 km since the clear, which says the same thing from the other direction.
+
+Generic SAE codes are named from a table. Manufacturer-specific ones are not guessed at, because
+`P1234` means something different on a Daihatsu than it does on a Nissan and a confidently wrong
+definition is worse than an honest "look this one up".
+
+## Sharing a trip
+
+Any finished trip exports from the share icon on its report:
+
+| Format | What you get |
+|---|---|
+| **Report** | One self-contained HTML file. Headline tiles, a diagnostics section, up to ten charts, the route, and the full min/avg/max table. |
+| **Raw CSV** | Every logged sample as one row, every metric as a column, for a spreadsheet or your own analysis. |
+
+The report contains **no images**. Charts are inline SVG paths and the route is an SVG polyline, so
+they stay sharp at any zoom, the numbers behind them stay selectable and searchable as real table
+text, and the whole trip travels as a single attachment with nothing to fetch. It carries its own
+CSS, follows the reader's light or dark preference, and opens in any browser with no network. A trip
+that never moved gets no route section rather than a single dot, and repeated fixes from a car
+stopped at lights are dropped from the polyline instead of being written out hundreds of times.
 
 ## Running without the car
 
@@ -191,7 +264,7 @@ Then pair your ELM327 in Android's Bluetooth settings first (the usual PIN is `1
 pick it on the Adapter screen.
 
 ```bash
-./gradlew testDebugUnitTest   # 42 JVM tests, no device needed
+./gradlew testDebugUnitTest   # 56 JVM tests, no device needed
 ./gradlew assembleDebug       # APK only
 ```
 
@@ -228,14 +301,16 @@ it. Bumping AndroidX means installing platform 37 and moving to AGP 9 first, in 
 obd/
   ObdPid.kt          PID registry: command, units, display range, decoder for each
   ObdProtocol.kt     Reply sanitising, support bitmasks, DTC decoding
-  ObdSession.kt      AT handshake, PID discovery, one read at a time
+  Diagnostics.kt     Readiness monitors and the generic trouble code catalogue
+  ObdSession.kt      AT handshake, protocol ladder, PID discovery, one read at a time
   ObdController.kt   Owns the connection, runs the poll loop
   transport/         BluetoothObdTransport (RFCOMM/SPP) and the simulator
 
 data/
   db/                Room entities and DAOs
   TripRecorder.kt    Batched sample writes, running aggregates, trip finalise
-  TripRepository.kt  History, chart series, route
+  TripRepository.kt  History, chart series, route, cached per trip
+  TripExporter.kt    Self-contained HTML report and raw CSV, no images
   SettingsStore.kt   DataStore preferences and thresholds
 
 alerts/              Threshold rules, debounce/hysteresis engine, notifications
@@ -327,13 +402,16 @@ Deliberately not text to speech. Speech is slow to parse and easy to talk over.
 
 ## Testing
 
-42 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
+56 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
 wrong decoder does not crash, it just shows you a plausible number that happens to be false.
 
 - reply sanitising: embedded spaces, `SEARCHING...` notices, multi-frame counters, truncated frames
 - every PID decoder against known byte values
 - support bitmask bit ordering, including the block-continuation bit
 - DTC decoding both with and without the count byte that CAN ECUs prepend
+- pending and permanent codes under their own mode echoes, and not under each other's
+- readiness monitor bit pairing, including the petrol/diesel split on byte B bit 3
+- trouble code classification, so a manufacturer code is never given a generic definition
 - alert debounce, hysteresis, escalation and de-escalation
 - a full `ObdSession` handshake, PID scan and read against the simulator
 
@@ -350,8 +428,11 @@ The UI has no instrumented tests. It was verified by running it.
 - [x] Trip reports with charts and route
 - [x] Editable thresholds and settings
 - [x] Switchable gauge faces and a healthy-band accent colour
-- [x] Push-start ignition control, shift light bar, and a mirrored windshield HUD mode
+- [x] Push-start ignition control and a shift light bar
 - [x] Time-based alert hysteresis, retuned from a real drive
+- [x] Pending, permanent and readiness diagnostics the dashboard lamp never shows
+- [x] Trip export and share, as a self-contained HTML report or raw CSV
+- [x] Adaptive poll budget, protocol fallback ladder, and a boost dial that scales to the engine
 - [ ] Firestore batch upload after each trip
 - [ ] Web dashboard reading from Firestore
 - [ ] Retention policy for raw reading rows

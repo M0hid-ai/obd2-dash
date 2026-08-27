@@ -46,6 +46,46 @@ class ObdSession(
         const val RESET_SETTLE_MS = 900L
         const val PID_TIMEOUT_MS = 1_200L
         const val SCAN_TIMEOUT_MS = 3_000L
+
+        /** An auto-search walks every protocol in turn, so it needs room. */
+        const val PROTOCOL_SEARCH_MS = 10_000L
+
+        /** A forced protocol either answers quickly or is the wrong one. */
+        const val FORCED_PROTOCOL_MS = 5_000L
+
+        /**
+         * Tried in order when the auto-search comes up empty. CAN first: it
+         * has been mandatory in most markets since 2008, so it is what almost
+         * every car on the road now speaks. The K-line protocols below it are
+         * only reachable on genuinely old vehicles.
+         */
+        val FALLBACK_PROTOCOLS = listOf(
+            "6" to "CAN 11 bit, 500 kbaud",
+            "7" to "CAN 29 bit, 500 kbaud",
+            "8" to "CAN 11 bit, 250 kbaud",
+            "9" to "CAN 29 bit, 250 kbaud",
+            "5" to "KWP2000 fast init",
+            "4" to "KWP2000 5 baud init",
+            "3" to "ISO 9141-2",
+            "1" to "SAE J1850 PWM",
+            "2" to "SAE J1850 VPW",
+        )
+
+        /** The ELM327's `ATDPN` digits. */
+        val PROTOCOL_NAMES = mapOf(
+            '1' to "SAE J1850 PWM",
+            '2' to "SAE J1850 VPW",
+            '3' to "ISO 9141-2",
+            '4' to "ISO 14230-4 KWP (5 baud)",
+            '5' to "ISO 14230-4 KWP (fast)",
+            '6' to "ISO 15765-4 CAN (11 bit, 500k)",
+            '7' to "ISO 15765-4 CAN (29 bit, 500k)",
+            '8' to "ISO 15765-4 CAN (11 bit, 250k)",
+            '9' to "ISO 15765-4 CAN (29 bit, 250k)",
+            'A' to "SAE J1939 CAN",
+            'B' to "User1 CAN",
+            'C' to "User2 CAN",
+        )
     }
 
     /**
@@ -66,26 +106,84 @@ class ObdSession(
         send("ATH0", AT_TIMEOUT_MS)   // no CAN headers
         send("ATAT1", AT_TIMEOUT_MS)  // adaptive timing
         send("ATST32", AT_TIMEOUT_MS) // ~200ms per-request ceiling
-        send("ATSP0", AT_TIMEOUT_MS)  // auto-detect protocol
 
         onProgress("Negotiating protocol…")
-        // The first real request is what actually triggers protocol detection;
-        // it can take a few seconds and reply with SEARCHING... first.
-        send("0100", 10_000L)
-
-        // ATDP answers in prose, not hex, so the usual sanitiser would strip
-        // the spaces out of "AUTO, ISO 15765-4 (CAN 11/500)" and leave one
-        // long unbreakable token that no label can wrap. lines() copes with
-        // either line ending the adapter chooses to use.
-        val protocol = send("ATDP", AT_TIMEOUT_MS)
-            .lines()
-            .joinToString(" ")
-            .replace(">", "")
-            .trim()
-            .ifBlank { "unknown" }
+        val protocol = negotiateProtocol(onProgress)
 
         Log.i(TAG, "Adapter=$version protocol=$protocol")
         return AdapterInfo(version = version.take(40), protocol = protocol.take(60))
+    }
+
+    /**
+     * Finds a protocol the car actually answers on.
+     *
+     * `ATSP0` handles the overwhelming majority of cars on its own, but its
+     * auto-search gives up on some ECUs that are perfectly happy once told
+     * which protocol to speak. So a failed auto-search falls through to trying
+     * the common ones explicitly, newest first, rather than reporting the car
+     * as unreachable.
+     */
+    private suspend fun negotiateProtocol(onProgress: (String) -> Unit): String {
+        send("ATSP0", AT_TIMEOUT_MS)
+        // The first real request is what actually triggers detection; it can
+        // take a few seconds and answers with SEARCHING... first.
+        if (probeEcu(PROTOCOL_SEARCH_MS)) return describeProtocol()
+
+        for ((code, label) in FALLBACK_PROTOCOLS) {
+            onProgress("Trying $label…")
+            Log.i(TAG, "Auto-detect failed, forcing protocol $code ($label)")
+            send("ATSP$code", AT_TIMEOUT_MS)
+            if (probeEcu(FORCED_PROTOCOL_MS)) return describeProtocol()
+        }
+
+        // Leave the adapter back on auto so the next attempt starts clean.
+        send("ATSP0", AT_TIMEOUT_MS)
+        return describeProtocol()
+    }
+
+    /** True when `0100` came back as real data rather than an error or silence. */
+    private suspend fun probeEcu(timeoutMs: Long): Boolean {
+        val raw = try {
+            send("0100", timeoutMs)
+        } catch (e: ObdTimeoutException) {
+            return false
+        }
+        val clean = ElmProtocol.sanitize(raw)
+        return clean.contains("4100") && ElmProtocol.errorToken(clean) == null
+    }
+
+    /**
+     * Names the protocol in use.
+     *
+     * `ATDP` answers in prose and is the nicer label, but several clones return
+     * a bare "AUTO," from it when the search has only partly completed, which
+     * is useless on a trip report. `ATDPN` answers with a single digit that
+     * maps to a known name, so it is the source of truth and the prose is only
+     * used when it is actually more specific.
+     */
+    private suspend fun describeProtocol(): String {
+        val numeric = runCatching { ElmProtocol.sanitize(send("ATDPN", AT_TIMEOUT_MS)) }.getOrNull()
+        // A leading 'A' means the adapter reached this protocol automatically.
+        val auto = numeric?.startsWith("A") == true
+        val named = numeric?.trimStart('A')?.firstOrNull()?.let { PROTOCOL_NAMES[it] }
+
+        val prose = runCatching {
+            send("ATDP", AT_TIMEOUT_MS)
+                .lines()
+                .joinToString(" ")
+                .replace(">", "")
+                .trim()
+                .trim(',')
+                .trim()
+        }.getOrNull().orEmpty()
+
+        return when {
+            named != null && auto -> "Auto · $named"
+            named != null -> named
+            // Only trust the prose if it says more than "AUTO".
+            prose.length > 5 -> prose
+            else -> "unknown"
+        }
     }
 
     /**

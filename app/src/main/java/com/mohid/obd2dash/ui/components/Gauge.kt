@@ -1,7 +1,5 @@
 package com.mohid.obd2dash.ui.components
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -16,11 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -133,38 +127,14 @@ fun MetricGauge(
      */
     origin: Float? = null,
     skin: GaugeSkin = GaugeSkin.CLASSIC,
-    /**
-     * Changing this plays a one-shot startup sweep: the needle swings to max,
-     * back to the origin, then settles on the real reading, the self-test a
-     * real instrument cluster runs when it powers on. Null never sweeps. The
-     * dashboard bumps this once per adapter connection, not on every value
-     * update, so it reads as "the car just started" rather than firing on
-     * every sample.
-     */
-    sweepKey: Any? = null,
 ) {
     val span = (max - min).takeIf { it > 0f } ?: 1f
     val target = ((value ?: min) - min) / span
-    val liveFraction by animateFloatAsState(
+    val fraction by animateFloatAsState(
         targetValue = target.coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = animationMillis, easing = LinearEasing),
         label = "gauge-$label",
     )
-
-    var sweeping by remember(sweepKey) { mutableStateOf(sweepKey != null) }
-    val sweepAnimatable = remember(sweepKey) { Animatable(0f) }
-    LaunchedEffect(sweepKey) {
-        if (sweepKey == null) return@LaunchedEffect
-        val settleAt = target.coerceIn(0f, 1f)
-        sweepAnimatable.animateTo(1f, tween(SWEEP_LEG_MS, easing = FastOutSlowInEasing))
-        sweepAnimatable.animateTo(0f, tween(SWEEP_LEG_MS, easing = FastOutSlowInEasing))
-        sweepAnimatable.animateTo(settleAt, tween(animationMillis, easing = LinearEasing))
-        sweeping = false
-    }
-    // liveFraction keeps tracking the real value underneath the sweep the
-    // whole time, so the instant the sweep finishes control hands off to it
-    // with no jump: by then it has already caught up to the same reading.
-    val fraction = if (sweeping) sweepAnimatable.value else liveFraction
 
     // With no reading there is no zone to be in, so the dial stays neutral
     // rather than borrowing the colour of whichever band happens to be last.
@@ -215,9 +185,6 @@ internal fun polar(center: Offset, radius: Float, degrees: Float): Offset {
         center.y + sin(radians).toFloat() * radius,
     )
 }
-
-/** Each leg of the startup sweep: to max, then back to the origin. */
-private const val SWEEP_LEG_MS = 260
 
 internal fun formatDefault(value: Float): String =
     if (kotlin.math.abs(value) >= 100f) value.toInt().toString() else "%.1f".format(value)

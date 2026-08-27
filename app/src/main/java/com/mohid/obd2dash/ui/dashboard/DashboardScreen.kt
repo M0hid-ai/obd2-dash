@@ -16,7 +16,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BluetoothConnected
-import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -28,9 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +41,7 @@ import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.obd.ConnectionState
 import com.mohid.obd2dash.obd.DerivedMetrics
+import com.mohid.obd2dash.obd.Induction
 import com.mohid.obd2dash.obd.MetricSnapshot
 import com.mohid.obd2dash.obd.ObdPid
 import com.mohid.obd2dash.obd.PidRegistry
@@ -75,7 +73,6 @@ fun DashboardScreen(
     graph: AppGraph,
     onOpenConnect: () -> Unit,
     onOpenTrip: (Long) -> Unit,
-    onOpenHud: () -> Unit,
 ) {
     val context = LocalContext.current
     val connection by graph.controller.connection.collectAsStateWithLifecycle()
@@ -84,17 +81,14 @@ fun DashboardScreen(
     val trip by graph.controller.trip.collectAsStateWithLifecycle()
     val lastFinished by graph.controller.lastFinishedTrip.collectAsStateWithLifecycle()
     val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
-
-    // Bumped exactly once per adapter connection, never per sample, so it
-    // reads as "the car just started" rather than firing on every reading.
-    var sweepToken by remember { mutableIntStateOf(0) }
-    var wasConnected by remember { mutableStateOf(false) }
-    LaunchedEffect(connection) {
-        val isConnected = connection is ConnectionState.Connected
-        if (isConnected && !wasConnected) sweepToken++
-        wasConnected = isConnected
+    val supported by graph.controller.supportedPids.collectAsStateWithLifecycle()
+    val induction by graph.controller.induction.collectAsStateWithLifecycle()
+    // Before a scan has run there is no PID list to judge by, and swapping the
+    // dial out on that basis would mean the disconnected dashboard guesses the
+    // car has no MAP sensor. Absent evidence, keep the boost dial.
+    val hasMap = remember(supported) {
+        supported.isEmpty() || supported.any { it.key == PidRegistry.MAP.key }
     }
-    val sweepKey: Any? = if (sweepToken == 0) null else sweepToken
 
     val rpmRule = settings.thresholdFor(PidRegistry.RPM.key)
 
@@ -128,7 +122,6 @@ fun DashboardScreen(
                 },
                 onDisconnect = { ObdService.stop(context) },
                 onOpenConnect = onOpenConnect,
-                onOpenHud = onOpenHud,
             )
 
             AlertBanner(
@@ -146,7 +139,12 @@ fun DashboardScreen(
                 )
             }
 
-            GaugeGrid(snapshot = snapshot, settings = settings, sweepKey = sweepKey)
+            GaugeGrid(
+                snapshot = snapshot,
+                settings = settings,
+                induction = induction,
+                hasMap = hasMap,
+            )
 
             TripControls(
                 trip = trip,
@@ -165,23 +163,36 @@ fun DashboardScreen(
  * round bezel.
  */
 @Composable
-private fun GaugeGrid(snapshot: MetricSnapshot, settings: AppSettings, sweepKey: Any?) {
+private fun GaugeGrid(
+    snapshot: MetricSnapshot,
+    settings: AppSettings,
+    induction: Induction,
+    hasMap: Boolean,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            PidGauge(PidRegistry.RPM, snapshot, settings, 0, sweepKey, Modifier.weight(1f))
-            PidGauge(PidRegistry.SPEED, snapshot, settings, 1, sweepKey, Modifier.weight(1f))
+            PidGauge(PidRegistry.RPM, snapshot, settings, 0, Modifier.weight(1f))
+            PidGauge(PidRegistry.SPEED, snapshot, settings, 1, Modifier.weight(1f))
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            PidGauge(PidRegistry.COOLANT_TEMP, snapshot, settings, 2, sweepKey, Modifier.weight(1f))
-            BoostGauge(snapshot, settings, 3, sweepKey, Modifier.weight(1f))
+            PidGauge(PidRegistry.COOLANT_TEMP, snapshot, settings, 2, Modifier.weight(1f))
+            // No manifold pressure sensor means no boost and no vacuum to show.
+            // Engine load is the closest thing to "how hard is it working" that
+            // every ECU answers, so the fourth dial shows that instead of a
+            // permanently blank one.
+            if (hasMap) {
+                BoostGauge(snapshot, settings, induction, 3, Modifier.weight(1f))
+            } else {
+                PidGauge(PidRegistry.ENGINE_LOAD, snapshot, settings, 3, Modifier.weight(1f))
+            }
         }
     }
 }
@@ -192,7 +203,6 @@ private fun PidGauge(
     snapshot: MetricSnapshot,
     settings: AppSettings,
     position: Int,
-    sweepKey: Any?,
     modifier: Modifier = Modifier,
 ) {
     val value = snapshot[pid.key]
@@ -206,7 +216,6 @@ private fun PidGauge(
         valueText = value?.let { pid.format(it) },
         animationMillis = settings.pollIntervalMs + 100,
         skin = settings.gaugeSkin.resolve(position),
-        sweepKey = sweepKey,
         modifier = modifier,
     )
 }
@@ -216,13 +225,19 @@ private fun PidGauge(
  * MAP minus ambient, shown in whichever pressure unit the user picked. The
  * thresholds are stored in kPa, so the bands are converted alongside the value
  * to keep the dial and the alerts consistent.
+ *
+ * The scale follows [induction]. A turbo car needs headroom above zero, but on
+ * a naturally aspirated engine the needle can never leave the bottom sixth of
+ * that scale, which wastes the largest dial on the screen showing nothing. Until
+ * the car proves it makes boost, the dial is scaled to the vacuum the engine
+ * actually pulls, where the movement is, and named for what it is measuring.
  */
 @Composable
 private fun BoostGauge(
     snapshot: MetricSnapshot,
     settings: AppSettings,
+    induction: Induction,
     position: Int,
-    sweepKey: Any?,
     modifier: Modifier = Modifier,
 ) {
     val pid = DerivedMetrics.BOOST
@@ -230,24 +245,36 @@ private fun BoostGauge(
     val kpa = snapshot[pid.key]
     val rule = settings.thresholdFor(pid.key)
 
-    val zonesKpa = zonesFor(pid, rule, pid.displayMin, pid.displayMax, settings.gaugeAccent.color)
+    val forced = induction == Induction.FORCED
+    val minKpa = pid.displayMin
+    val maxKpa = if (forced) pid.displayMax else NA_BOOST_CEILING_KPA
+
+    val zonesKpa = zonesFor(pid, rule, minKpa, maxKpa, settings.gaugeAccent.color)
     val zones = zonesKpa.map { GaugeZone(unit.from(it.from), unit.from(it.to), it.color, it.healthy) }
 
     MetricGauge(
-        label = "Boost",
+        label = if (forced) "Boost" else "Vacuum",
         value = kpa?.let { unit.from(it) },
         unit = unit.suffix,
-        min = unit.from(pid.displayMin),
-        max = unit.from(pid.displayMax),
+        min = unit.from(minKpa),
+        max = unit.from(maxKpa),
         zones = zones,
         origin = unit.from(0f),
         valueText = kpa?.let { "%.${unit.decimals}f".format(unit.from(it)) },
         animationMillis = settings.pollIntervalMs + 100,
         skin = settings.gaugeSkin.resolve(position),
-        sweepKey = sweepKey,
         modifier = modifier,
     )
 }
+
+/**
+ * Top of the boost dial before the car has shown any boost.
+ *
+ * Slightly above ambient rather than exactly at it, so the needle has somewhere
+ * to go on the first pull that does make positive pressure, in the moment
+ * before the scale widens out.
+ */
+private const val NA_BOOST_CEILING_KPA = 30f
 
 @Composable
 private fun ConnectionHeader(
@@ -256,7 +283,6 @@ private fun ConnectionHeader(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onOpenConnect: () -> Unit,
-    onOpenHud: () -> Unit,
 ) {
     Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -312,9 +338,6 @@ private fun ConnectionHeader(
             }
             TextButton(onClick = onOpenConnect) {
                 Icon(Icons.AutoMirrored.Filled.BluetoothSearching, contentDescription = "Adapters", tint = TextMuted)
-            }
-            TextButton(onClick = onOpenHud) {
-                Icon(Icons.Filled.Fullscreen, contentDescription = "Windshield HUD", tint = TextMuted)
             }
         }
     }

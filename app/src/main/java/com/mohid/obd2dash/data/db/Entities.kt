@@ -24,6 +24,16 @@ data class TripEntity(
     val protocol: String? = null,
     val milOn: Boolean = false,
     val dtcCount: Int = 0,
+    /**
+     * Emissions self-tests that had not finished during this trip, and how many
+     * the ECU runs in total. Null when the car never answered PID 0101.
+     *
+     * Worth keeping per trip rather than only live: a row of incomplete
+     * monitors is the fingerprint of a recent code clear, and knowing which
+     * drive it was still showing on is what dates that clear.
+     */
+    val readinessIncomplete: Int? = null,
+    val readinessSupported: Int? = null,
     /** Null until the post-trip batch upload succeeds. */
     val syncedAt: Long? = null,
 )

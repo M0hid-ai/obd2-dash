@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import com.mohid.obd2dash.alerts.AlertNotifier
 import com.mohid.obd2dash.data.SettingsStore
+import com.mohid.obd2dash.data.TripExporter
 import com.mohid.obd2dash.data.TripRepository
 import com.mohid.obd2dash.data.db.AppDatabase
 import com.mohid.obd2dash.location.LocationTracker
@@ -38,6 +39,8 @@ class AppGraph(context: Context) {
     val locationTracker: LocationTracker by lazy { LocationTracker(appContext) }
 
     val tripRepository: TripRepository by lazy { TripRepository(database) }
+
+    val tripExporter: TripExporter by lazy { TripExporter(appContext, tripRepository) }
 
     val controller: ObdController by lazy {
         ObdController(

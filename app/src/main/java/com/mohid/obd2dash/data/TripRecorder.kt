@@ -75,6 +75,8 @@ class TripRecorder(private val db: AppDatabase) {
     private var lastFlushAt = 0L
     private var lastLocation: Location? = null
     private var milOn = false
+    private var readinessIncomplete: Int? = null
+    private var readinessSupported: Int? = null
 
     val activeTripId: Long? get() = tripId
 
@@ -140,6 +142,19 @@ class TripRecorder(private val db: AppDatabase) {
 
     fun onMilStatus(on: Boolean) {
         if (on) milOn = true
+    }
+
+    /**
+     * Records the worst readiness picture seen during the trip.
+     *
+     * Monitors only ever complete as the car is driven, so the highest
+     * incomplete count is the one that says most about the state the car
+     * started this drive in.
+     */
+    fun onReadiness(incomplete: Int, supported: Int) {
+        if (supported <= 0) return
+        readinessSupported = supported
+        readinessIncomplete = maxOf(readinessIncomplete ?: 0, incomplete)
     }
 
     suspend fun record(snapshot: MetricSnapshot) {
@@ -219,6 +234,8 @@ class TripRecorder(private val db: AppDatabase) {
                     sampleCount = sampleCount,
                     milOn = milOn,
                     dtcCount = pendingCodes.size,
+                    readinessIncomplete = readinessIncomplete,
+                    readinessSupported = readinessSupported,
                 ),
             )
         }
@@ -255,6 +272,8 @@ class TripRecorder(private val db: AppDatabase) {
         tripId = null
         sampleCount = 0
         milOn = false
+        readinessIncomplete = null
+        readinessSupported = null
         lastLocation = null
     }
 }

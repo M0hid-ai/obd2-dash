@@ -19,6 +19,16 @@ import kotlin.random.Random
  */
 class SimulatedObdTransport(
     private val injectedCodes: List<String> = emptyList(),
+    /**
+     * Faults the car will not tell its own driver about: pending codes have
+     * been seen once but not confirmed, permanent ones outlived a code clear.
+     * Neither lights the dashboard lamp, so neither shows up in [injectedCodes]
+     * or in the PID 0101 count.
+     */
+    private val pendingCodes: List<String> = emptyList(),
+    private val permanentCodes: List<String> = emptyList(),
+    /** Emissions self-tests reported as still running. */
+    private val incompleteMonitors: Boolean = false,
     private val latencyMs: LongRange = 25L..55L,
 ) : ObdTransport {
 
@@ -51,11 +61,13 @@ class SimulatedObdTransport(
         cmd == "ATZ" -> "ELM327 v1.5"
         cmd == "ATI" -> "ELM327 v1.5"
         cmd == "ATDP" -> "AUTO, ISO 15765-4 (CAN 11/500)"
+        // 'A' for auto-detected, '6' for ISO 15765-4 CAN 11 bit / 500 kbaud.
+        cmd == "ATDPN" -> "A6"
         cmd == "ATRV" -> "%.1fV".format(state().voltage)
         cmd.startsWith("AT") -> "OK"
         cmd.startsWith("03") -> dtcReply(0x03, injectedCodes)
-        cmd.startsWith("07") -> dtcReply(0x07, emptyList())
-        cmd.startsWith("0A") -> dtcReply(0x0A, emptyList())
+        cmd.startsWith("07") -> dtcReply(0x07, pendingCodes)
+        cmd.startsWith("0A") -> dtcReply(0x0A, permanentCodes)
         cmd.startsWith("01") -> mode01Reply(cmd)
         else -> "NO DATA"
     }
@@ -94,7 +106,15 @@ class SimulatedObdTransport(
         fun pct(v: Float) = intArrayOf((v * 255f / 100f).roundToInt())
         fun word(v: Int) = intArrayOf((v shr 8) and 0xFF, v and 0xFF)
         return when (pid) {
-            0x01 -> intArrayOf(if (injectedCodes.isEmpty()) 0 else 0x80 or injectedCodes.size, 0x07, 0xE1, 0x00)
+            // Byte A: the lamp and the confirmed count, which pending and
+            // permanent codes deliberately do not contribute to. Byte D carries
+            // the incomplete flags for the monitors byte C says are supported.
+            0x01 -> intArrayOf(
+                if (injectedCodes.isEmpty()) 0 else 0x80 or injectedCodes.size,
+                if (incompleteMonitors) 0x77 else 0x07,
+                0xE1,
+                if (incompleteMonitors) 0xE1 else 0x00,
+            )
             0x03 -> intArrayOf(0x02, 0x00) // closed loop, using O2 feedback
             0x04 -> pct(s.engineLoad)
             0x05 -> intArrayOf((s.coolantC + 40f).roundToInt())

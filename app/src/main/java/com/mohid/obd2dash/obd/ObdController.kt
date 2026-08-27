@@ -53,10 +53,24 @@ sealed interface TripState {
     ) : TripState
 }
 
+/**
+ * Whether the engine is force fed.
+ *
+ * Decided from what the manifold actually does rather than from a setting: a
+ * naturally aspirated engine can never push manifold pressure above ambient,
+ * so one confident reading above atmospheric is proof of a turbo or a blower,
+ * and no amount of driving can prove the opposite. Until that reading arrives
+ * the boost dial stays scaled for vacuum, which is the useful range on an NA
+ * car and still correct on a turbo one that has not been opened up yet.
+ */
+enum class Induction { UNKNOWN, NATURAL, FORCED }
+
 data class PollStats(
     val samplesPerSecond: Float = 0f,
     val lastCycleMs: Long = 0,
     val failures: Int = 0,
+    /** Slow-tier PIDs read in the last cycle. Varies with how fast the link is. */
+    val slowReadsPerCycle: Int = 0,
 )
 
 /**
@@ -84,7 +98,25 @@ class ObdController(
         const val DEMOTE_AFTER_NO_DATA = 3
 
         const val BARO_REFRESH_MS = 60_000L
-        const val DTC_POLL_MS = 30_000L
+
+        /**
+         * One diagnostic mode is read per tick rather than all of them at once,
+         * so a scan never costs three round trips inside a single poll cycle.
+         * Four ticks covers the lamp plus stored, pending and permanent codes.
+         */
+        const val DTC_POLL_MS = 15_000L
+
+        /** Ceiling on slow-tier reads per cycle, however fast the link is. */
+        const val MAX_SLOW_READS_PER_CYCLE = 5
+
+        /** Starting guess for one request-response round trip over RFCOMM. */
+        const val INITIAL_READ_COST_MS = 70.0
+
+        /** Weight given to the newest measurement when re-estimating read cost. */
+        const val READ_COST_SMOOTHING = 0.2
+
+        /** Manifold pressure this far above ambient can only come from a compressor. */
+        const val FORCED_INDUCTION_KPA = 12f
 
         /**
          * How long the engine must stay stopped before the trip is closed.
@@ -126,6 +158,15 @@ class ObdController(
 
     private val _lastFinishedTrip = MutableStateFlow<Long?>(null)
     val lastFinishedTrip: StateFlow<Long?> = _lastFinishedTrip.asStateFlow()
+
+    private val _monitorStatus = MutableStateFlow<MonitorStatus?>(null)
+    val monitorStatus: StateFlow<MonitorStatus?> = _monitorStatus.asStateFlow()
+
+    private val _troubleCodes = MutableStateFlow<List<DiagnosticCode>>(emptyList())
+    val troubleCodes: StateFlow<List<DiagnosticCode>> = _troubleCodes.asStateFlow()
+
+    private val _induction = MutableStateFlow(Induction.UNKNOWN)
+    val induction: StateFlow<Induction> = _induction.asStateFlow()
 
     private val alertEngine = AlertEngine()
     private val recorder = TripRecorder(db)
@@ -304,7 +345,12 @@ class ObdController(
         var occasionalIndex = 0
         var lastBaroAt = 0L
         var lastDtcAt = 0L
+        var dtcRotation = 0
         var failures = 0
+        // Measured, not assumed. A cheap clone on a short cable answers in a
+        // third of the time a flaky one does, and the difference decides how
+        // many of the long tail fit in a cycle.
+        var readCostMs = INITIAL_READ_COST_MS
         var engineOffSince: Long? = null
         var idleShutdown = false
         // Edge triggered: a trip begins when the engine *starts*, not merely
@@ -333,14 +379,34 @@ class ObdController(
                     }
                 }
 
-                // One slow PID per cycle keeps the long tail fresh without
-                // stealing sample rate from the gauges.
+                // The long tail is round-robined into whatever time is left in
+                // the cycle after the gauges have been served. Reading exactly
+                // one per cycle wasted most of the budget on a quick link: a
+                // car answering 35 PIDs took half a minute to refresh them all,
+                // which is why the slow-tier trip charts came out as staircases
+                // rather than curves. Filling the budget instead refreshes the
+                // same list several times faster without ever pushing a cycle
+                // past the poll interval the gauges depend on.
                 val rotation = slowTier.filter { it.key !in demoted }
+                var slowReads = 0
                 if (rotation.isNotEmpty()) {
-                    val pid = rotation[slowIndex % rotation.size]
-                    slowIndex++
-                    if (!readInto(active, pid, values, updatedAt, noDataCount, demoted, now)) {
-                        throw IOException("Adapter stopped responding")
+                    while (slowReads < MAX_SLOW_READS_PER_CYCLE) {
+                        val elapsed = SystemClock.elapsedRealtime() - cycleStart
+                        // Always take the first one, however tight the budget:
+                        // a starved long tail is worse than a cycle that runs
+                        // slightly long.
+                        val affordable = elapsed + readCostMs <= settings.pollIntervalMs
+                        if (slowReads > 0 && !affordable) break
+
+                        val pid = rotation[slowIndex % rotation.size]
+                        slowIndex++
+                        val startedAt = SystemClock.elapsedRealtime()
+                        if (!readInto(active, pid, values, updatedAt, noDataCount, demoted, now)) {
+                            throw IOException("Adapter stopped responding")
+                        }
+                        val cost = (SystemClock.elapsedRealtime() - startedAt).toDouble()
+                        readCostMs = readCostMs * (1 - READ_COST_SMOOTHING) + cost * READ_COST_SMOOTHING
+                        slowReads++
                     }
                 }
 
@@ -356,6 +422,7 @@ class ObdController(
                 }
 
                 applyDerivedMetrics(values, updatedAt, now)
+                detectInduction(values)
 
                 val snapshot = MetricSnapshot(now, HashMap(values), HashMap(updatedAt))
                 _snapshot.value = snapshot
@@ -393,7 +460,7 @@ class ObdController(
 
                 if (now - lastDtcAt >= DTC_POLL_MS) {
                     lastDtcAt = now
-                    pollTroubleCodes(active, now)
+                    pollTroubleCodes(active, now, dtcRotation++)
                 }
 
                 val cycleMs = SystemClock.elapsedRealtime() - cycleStart
@@ -401,6 +468,7 @@ class ObdController(
                     samplesPerSecond = if (cycleMs > 0) 1000f / cycleMs else 0f,
                     lastCycleMs = cycleMs,
                     failures = failures,
+                    slowReadsPerCycle = slowReads,
                 )
 
                 val remaining = settings.pollIntervalMs - cycleMs
@@ -488,6 +556,30 @@ class ObdController(
         updatedAt[DerivedMetrics.BOOST.key] = now
     }
 
+    /**
+     * Watches for manifold pressure above ambient, which only a compressor can
+     * produce. One sided on purpose: no amount of gentle driving proves a car
+     * is naturally aspirated, so the state only ever moves toward FORCED.
+     */
+    private fun detectInduction(values: Map<String, Float>) {
+        if (_induction.value == Induction.FORCED) return
+        val boost = values[DerivedMetrics.BOOST.key]
+        if (boost == null) {
+            // No MAP at all: nothing to infer from, and no boost dial either.
+            if (_induction.value == Induction.UNKNOWN && values.isNotEmpty()) {
+                _induction.value = Induction.NATURAL
+            }
+            return
+        }
+        if (boost >= FORCED_INDUCTION_KPA) {
+            Log.i(TAG, "Forced induction detected: %.0f kPa over ambient".format(boost))
+            _induction.value = Induction.FORCED
+            appendLog("Boost above ambient, treating this car as forced induction")
+        } else if (_induction.value == Induction.UNKNOWN) {
+            _induction.value = Induction.NATURAL
+        }
+    }
+
     private fun evaluateAlerts(snapshot: MetricSnapshot) {
         val update = alertEngine.evaluate(snapshot)
         _alerts.value = update.active
@@ -498,18 +590,44 @@ class ObdController(
         }
     }
 
-    private suspend fun pollTroubleCodes(session: ObdSession, now: Long) {
-        val status = session.readMonitorStatus()
-        if (status != null) {
-            recorder.onMilStatus(status.milOn)
-            if (status.dtcCount == 0 && !status.milOn) return
+    /**
+     * Reads the faults the dashboard warning light does not tell you about.
+     *
+     * The lamp only ever reflects *confirmed* codes. A fault the ECU has seen
+     * once but not yet confirmed sits in Mode 07 as pending, and one that
+     * survived a code clear without the car re-passing its drive cycle sits in
+     * Mode 0A as permanent. Neither lights the lamp and neither is counted by
+     * PID 0101, so neither can be gated on the lamp or the count. This used to
+     * bail out early whenever the lamp was off and the count was zero, which is
+     * precisely the state a car with a pending fault reports, so the two
+     * categories worth catching early were the two that were never read.
+     *
+     * One mode per tick, rotating, so a scan is never three round trips inside
+     * one poll cycle.
+     */
+    private suspend fun pollTroubleCodes(session: ObdSession, now: Long, tick: Int) {
+        when (tick % 4) {
+            0 -> {
+                val status = session.readMonitorStatus() ?: return
+                _monitorStatus.value = status
+                recorder.onMilStatus(status.milOn)
+                recorder.onReadiness(status.incomplete.size, status.supportedCount)
+            }
+            1 -> refreshCodes(session, DiagnosticCode.Kind.STORED, now)
+            2 -> refreshCodes(session, DiagnosticCode.Kind.PENDING, now)
+            else -> refreshCodes(session, DiagnosticCode.Kind.PERMANENT, now)
         }
-        val stored = session.readTroubleCodes(DiagnosticCode.Kind.STORED)
-        val pending = session.readTroubleCodes(DiagnosticCode.Kind.PENDING)
-        val found = stored + pending
+    }
+
+    private suspend fun refreshCodes(session: ObdSession, kind: DiagnosticCode.Kind, now: Long) {
+        val found = session.readTroubleCodes(kind)
+        // Replace only this category, so a mode that comes back empty clears
+        // its own codes without wiping what the other two found.
+        val merged = _troubleCodes.value.filter { it.kind != kind } + found
+        _troubleCodes.value = merged.sortedWith(compareBy({ it.kind.ordinal }, { it.code }))
         if (found.isNotEmpty()) {
             recorder.onTroubleCodes(found, now)
-            appendLog("Trouble codes: ${found.joinToString { it.code }}")
+            appendLog("${kind.label} codes: ${found.joinToString { it.code }}")
         }
     }
 
@@ -589,6 +707,9 @@ class ObdController(
         alertEngine.snapshot().forEach { notifier.clear(it.metricKey) }
         alertEngine.reset()
         _alerts.value = emptyList()
+        _troubleCodes.value = emptyList()
+        _monitorStatus.value = null
+        _induction.value = Induction.UNKNOWN
     }
 
     fun acknowledgeAlert(metricKey: String) {

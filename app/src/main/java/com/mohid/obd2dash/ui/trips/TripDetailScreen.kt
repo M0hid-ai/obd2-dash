@@ -2,6 +2,7 @@ package com.mohid.obd2dash.ui.trips
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,11 +10,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -21,6 +28,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -30,13 +39,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.unit.sp
 import com.mohid.obd2dash.AppGraph
+import com.mohid.obd2dash.data.ExportFormat
 import com.mohid.obd2dash.data.SeriesPoint
 import com.mohid.obd2dash.data.db.TripMetricEntity
 import com.mohid.obd2dash.obd.metricByKey
@@ -52,6 +65,7 @@ import com.mohid.obd2dash.ui.theme.PanelRaised
 import com.mohid.obd2dash.ui.theme.TextMuted
 import com.mohid.obd2dash.ui.theme.ZoneDanger
 import com.mohid.obd2dash.ui.theme.ZoneWarn
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -72,6 +86,12 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
     var selectedMetric by remember(tripId) { mutableStateOf<String?>(null) }
     var series by remember(tripId) { mutableStateOf<List<SeriesPoint>>(emptyList()) }
     var route by remember(tripId) { mutableStateOf<List<RouteSample>>(emptyList()) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHost = remember { SnackbarHostState() }
+    var shareMenuOpen by remember { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
 
     LaunchedEffect(tripId) {
         metricKeys = graph.tripRepository.recordedMetrics(tripId)
@@ -94,9 +114,69 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    Box {
+                        IconButton(
+                            onClick = { shareMenuOpen = true },
+                            // An unfinished trip has no summary rows yet, so
+                            // there is nothing coherent to export until it ends.
+                            enabled = !exporting && trip?.endedAt != null,
+                        ) {
+                            if (exporting) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    color = Cyan,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            } else {
+                                Icon(Icons.Filled.Share, contentDescription = "Export or share this trip")
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = shareMenuOpen,
+                            onDismissRequest = { shareMenuOpen = false },
+                            containerColor = Panel,
+                        ) {
+                            ExportFormat.entries.forEach { format ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column(Modifier.padding(vertical = 4.dp)) {
+                                            Text(format.label, style = MaterialTheme.typography.bodyLarge)
+                                            Text(
+                                                format.blurb,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextMuted,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.width(232.dp),
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        shareMenuOpen = false
+                                        exporting = true
+                                        scope.launch {
+                                            val file = runCatching {
+                                                graph.tripExporter.export(tripId, format)
+                                            }.getOrNull()
+                                            exporting = false
+                                            if (file == null) {
+                                                snackbarHost.showSnackbar("Could not build that export.")
+                                            } else {
+                                                context.startActivity(
+                                                    graph.tripExporter.shareIntent(file, tripId),
+                                                )
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Ink),
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHost) },
     ) { padding ->
         Column(
             Modifier

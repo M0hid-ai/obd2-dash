@@ -257,7 +257,13 @@ object PidRegistry {
      * Barometric pressure only moves with the weather and your altitude, so it
      * is read once at connect and refreshed occasionally rather than polled.
      */
-    val rarelyChanging: Set<String> = setOf(BAROMETRIC.key, "fuelLevel", "warmups", "distanceCleared", "clearedTime", "distanceMil", "milTime")
+    val rarelyChanging: Set<String> = setOf(
+        BAROMETRIC.key,
+        // Odometer-style counters that only move over whole drives, plus the
+        // MIL counters, which sit at zero on a healthy car and can only start
+        // moving after a fault the diagnostics poll has already caught.
+        "fuelLevel", "warmups", "distanceCleared", "clearedTime", "distanceMil", "milTime",
+    )
 }
 
 /**

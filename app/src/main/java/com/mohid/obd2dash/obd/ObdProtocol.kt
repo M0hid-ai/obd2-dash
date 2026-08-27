@@ -192,17 +192,3 @@ object DtcDecoder {
         return "$letter$d1${d2.toString(16).uppercase()}${d3.toString(16).uppercase()}${d4.toString(16).uppercase()}"
     }
 }
-
-/** PID 0101: the malfunction indicator lamp state and stored-code count. */
-data class MonitorStatus(
-    val milOn: Boolean,
-    val dtcCount: Int,
-) {
-    companion object {
-        fun parse(raw: String): MonitorStatus? {
-            val data = ElmProtocol.extractData(raw, "4101", 4) ?: return null
-            val a = data[0]
-            return MonitorStatus(milOn = (a and 0x80) != 0, dtcCount = a and 0x7F)
-        }
-    }
-}

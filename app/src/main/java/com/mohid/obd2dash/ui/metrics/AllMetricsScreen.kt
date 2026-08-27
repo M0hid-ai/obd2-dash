@@ -45,6 +45,8 @@ fun AllMetricsScreen(graph: AppGraph) {
     val snapshot by graph.controller.snapshot.collectAsStateWithLifecycle()
     val supported by graph.controller.supportedPids.collectAsStateWithLifecycle()
     val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
+    val monitorStatus by graph.controller.monitorStatus.collectAsStateWithLifecycle()
+    val troubleCodes by graph.controller.troubleCodes.collectAsStateWithLifecycle()
 
     // Boost belongs with the primaries even though no ECU reports it directly.
     val displayed = remember(supported) {
@@ -68,6 +70,18 @@ fun AllMetricsScreen(graph: AppGraph) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        // The car's own opinion of its health goes above the raw numbers: it is
+        // the part you cannot get by looking at the dashboard while driving.
+        if (monitorStatus != null || troubleCodes.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "health") {
+                HealthSection(
+                    status = monitorStatus,
+                    codes = troubleCodes,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+        }
+
         displayed.forEach { (group, pids) ->
             item(span = { GridItemSpan(maxLineSpan) }, key = "header-${group.name}") {
                 GroupHeader(group, pids.size)
