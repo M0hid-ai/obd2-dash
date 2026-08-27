@@ -1,5 +1,6 @@
 package com.mohid.obd2dash.ui.components
 
+import androidx.compose.ui.graphics.Color
 import com.mohid.obd2dash.alerts.ThresholdRule
 import com.mohid.obd2dash.obd.ObdPid
 import com.mohid.obd2dash.ui.theme.Zone
@@ -11,10 +12,15 @@ import com.mohid.obd2dash.ui.theme.ZoneWarn
  * Turns a metric's alert thresholds into the coloured bands painted on its
  * gauge, so the dial and the alerts can never disagree about what "too hot"
  * means. Edit a threshold in settings and the gauge redraws to match.
+ *
+ * [healthy] is the one thing the user's accent colour choice is allowed to
+ * touch: the "everything is fine" band. Warning and danger stay fixed at
+ * amber and red regardless, so the glanceable safety coding never changes
+ * meaning just because someone picked a different accent.
  */
-fun zonesFor(pid: ObdPid, rule: ThresholdRule?, min: Float, max: Float): List<GaugeZone> {
+fun zonesFor(pid: ObdPid, rule: ThresholdRule?, min: Float, max: Float, healthy: Color = ZoneGood): List<GaugeZone> {
     if (rule == null || !rule.enabled) {
-        return listOf(GaugeZone(min, max, ZoneGood))
+        return listOf(GaugeZone(min, max, healthy, healthy = true))
     }
 
     val bands = mutableListOf<GaugeZone>()
@@ -37,7 +43,7 @@ fun zonesFor(pid: ObdPid, rule: ThresholdRule?, min: Float, max: Float): List<Ga
     val criticalHigh = rule.criticalAbove?.coerceIn(min, max)
     val healthyEnd = warnHigh ?: criticalHigh ?: max
     if (healthyEnd > cursor) {
-        bands += GaugeZone(cursor, healthyEnd, ZoneGood)
+        bands += GaugeZone(cursor, healthyEnd, healthy, healthy = true)
         cursor = healthyEnd
     }
     if (criticalHigh != null && criticalHigh > cursor) {
@@ -45,15 +51,16 @@ fun zonesFor(pid: ObdPid, rule: ThresholdRule?, min: Float, max: Float): List<Ga
         cursor = criticalHigh
     }
     if (max > cursor) {
+        val tailIsHealthy = criticalHigh == null && warnHigh == null
         val tailColor = when {
             criticalHigh != null -> ZoneDanger
             warnHigh != null -> ZoneWarn
-            else -> ZoneGood
+            else -> healthy
         }
-        bands += GaugeZone(cursor, max, tailColor)
+        bands += GaugeZone(cursor, max, tailColor, healthy = tailIsHealthy)
     }
 
-    return bands.ifEmpty { listOf(GaugeZone(min, max, ZoneGood)) }
+    return bands.ifEmpty { listOf(GaugeZone(min, max, healthy, healthy = true)) }
 }
 
 /** Which band a live value currently sits in, for the dot on a metric card. */

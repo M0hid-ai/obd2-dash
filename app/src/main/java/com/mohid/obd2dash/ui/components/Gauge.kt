@@ -49,6 +49,14 @@ data class GaugeZone(
     val from: Float,
     val to: Float,
     val color: Color,
+    /**
+     * Whether this is the "everything is fine" band, as opposed to a warning
+     * or danger band. Tracked explicitly rather than inferred from the colour,
+     * since the healthy colour itself is now a user choice: some faces treat
+     * the healthy band as context rather than information and want to know
+     * which one it is regardless of what colour it happens to be.
+     */
+    val healthy: Boolean = false,
 )
 
 /**
@@ -153,7 +161,10 @@ fun MetricGauge(
 
     when (skin) {
         GaugeSkin.HEXA -> HexaGauge(state, modifier)
-        GaugeSkin.HERITAGE -> HeritageGauge(state, modifier)
+        GaugeSkin.HERITAGE -> HeritageGauge(state, modifier, HeritageFinish.STEEL)
+        GaugeSkin.HERITAGE_GUNMETAL -> HeritageGauge(state, modifier, HeritageFinish.GUNMETAL)
+        GaugeSkin.HERITAGE_TITANIUM -> HeritageGauge(state, modifier, HeritageFinish.TITANIUM)
+        GaugeSkin.HERITAGE_CARBON -> HeritageGauge(state, modifier, HeritageFinish.CARBON)
         GaugeSkin.COCKPIT -> CockpitGauge(state, modifier)
         GaugeSkin.CIRCUIT -> CircuitGauge(state, modifier)
         // SHOWCASE is resolved to a real face before it ever reaches here.
@@ -371,7 +382,7 @@ private fun DrawScope.drawZoneStrip(
         if (to - from < 0.004f) continue
 
         // The healthy band is context, not information, so it stays a whisper.
-        val alpha = if (zone.color == ZoneGood) 0.20f else 0.85f
+        val alpha = if (zone.healthy) 0.20f else 0.85f
         drawArc(
             color = zone.color.copy(alpha = alpha),
             startAngle = START_ANGLE + from * SWEEP_ANGLE,

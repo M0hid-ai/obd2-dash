@@ -16,8 +16,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BluetoothConnected
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -51,6 +49,8 @@ import com.mohid.obd2dash.service.ObdService
 import com.mohid.obd2dash.ui.components.AlertBanner
 import com.mohid.obd2dash.ui.components.GaugeZone
 import com.mohid.obd2dash.ui.components.MetricGauge
+import com.mohid.obd2dash.ui.components.PushStartButton
+import com.mohid.obd2dash.ui.components.PushStartCaption
 import com.mohid.obd2dash.ui.components.StatTile
 import com.mohid.obd2dash.ui.components.formatElapsed
 import com.mohid.obd2dash.ui.components.zonesFor
@@ -171,7 +171,7 @@ private fun PidGauge(
         unit = pid.unit,
         min = pid.displayMin,
         max = pid.displayMax,
-        zones = zonesFor(pid, settings.thresholdFor(pid.key), pid.displayMin, pid.displayMax),
+        zones = zonesFor(pid, settings.thresholdFor(pid.key), pid.displayMin, pid.displayMax, settings.gaugeAccent.color),
         valueText = value?.let { pid.format(it) },
         animationMillis = settings.pollIntervalMs + 100,
         skin = settings.gaugeSkin.resolve(position),
@@ -197,8 +197,8 @@ private fun BoostGauge(
     val kpa = snapshot[pid.key]
     val rule = settings.thresholdFor(pid.key)
 
-    val zonesKpa = zonesFor(pid, rule, pid.displayMin, pid.displayMax)
-    val zones = zonesKpa.map { GaugeZone(unit.from(it.from), unit.from(it.to), it.color) }
+    val zonesKpa = zonesFor(pid, rule, pid.displayMin, pid.displayMax, settings.gaugeAccent.color)
+    val zones = zonesKpa.map { GaugeZone(unit.from(it.from), unit.from(it.to), it.color, it.healthy) }
 
     MetricGauge(
         label = "Boost",
@@ -317,12 +317,9 @@ private fun TripControls(
                                 color = TextMuted,
                             )
                         }
-                        Button(
-                            onClick = onStop,
-                            colors = ButtonDefaults.buttonColors(containerColor = ZoneDanger),
-                        ) {
-                            Icon(Icons.Filled.Stop, contentDescription = null, Modifier.size(18.dp))
-                            Text("Stop", modifier = Modifier.padding(start = 6.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            PushStartButton(running = true, enabled = true, onClick = onStop)
+                            PushStartCaption(running = true, enabled = true)
                         }
                     }
 
@@ -344,7 +341,7 @@ private fun TripControls(
                             Text("No trip recording", style = MaterialTheme.typography.titleSmall)
                             Text(
                                 if (connected) {
-                                    "Press Start when you are ready to record."
+                                    "Push the button when you are ready to record."
                                 } else {
                                     "Connect to the adapter first."
                                 },
@@ -352,9 +349,9 @@ private fun TripControls(
                                 color = TextMuted,
                             )
                         }
-                        Button(onClick = onStart, enabled = connected) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, Modifier.size(18.dp))
-                            Text("Start", modifier = Modifier.padding(start = 6.dp))
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            PushStartButton(running = false, enabled = connected, onClick = onStart)
+                            PushStartCaption(running = false, enabled = connected)
                         }
                     }
                 }

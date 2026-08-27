@@ -23,12 +23,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -117,7 +120,7 @@ internal fun HexaGauge(state: GaugeState, modifier: Modifier) {
                 style = Stroke(width = track, cap = StrokeCap.Butt),
             )
             for (zone in state.zones) {
-                if (zone.color == ZoneGood) continue
+                if (zone.healthy) continue
                 val from = ((zone.from - state.min) / state.span).coerceIn(0f, 1f)
                 val to = ((zone.to - state.min) / state.span).coerceIn(0f, 1f)
                 if (to - from < 0.004f) continue
@@ -334,6 +337,62 @@ private const val HERITAGE_MINORS_PER_MAJOR = 5
 private val Cream = Color(0xFFF2E9D8)
 
 /**
+ * The material the Heritage bezel is machined from. The layout, numerals and
+ * needle stay identical across all four; only what the metal looks like
+ * changes, the same way a watch line sells one movement in four cases.
+ */
+internal enum class HeritageFinish(val label: String, val blurb: String) {
+    STEEL(
+        "Heritage — Steel",
+        "Brushed stainless, warm under the cream dial. The original.",
+    ),
+    GUNMETAL(
+        "Heritage — Gunmetal",
+        "Dark graphite bezel with almost no shine. Reads as understated, tactical.",
+    ),
+    TITANIUM(
+        "Heritage — Titanium",
+        "Cooler and lighter than steel, with a faint blue cast under the sweep.",
+    ),
+    CARBON(
+        "Heritage — Carbon",
+        "A woven carbon fibre bezel instead of polished metal, under a glossy clear coat.",
+    ),
+    ;
+
+    /** The sweep gradient stops the bezel ring is painted with. */
+    val bezelColors: List<Color>
+        get() = when (this) {
+            STEEL -> listOf(
+                Color(0xFF7C858F), Color(0xFF2B3138), Color(0xFF98A1AB),
+                Color(0xFF31383F), Color(0xFF6B747E), Color(0xFF20262C), Color(0xFF7C858F),
+            )
+            GUNMETAL -> listOf(
+                Color(0xFF4B4E52), Color(0xFF16181A), Color(0xFF5C6064),
+                Color(0xFF1C1E20), Color(0xFF3D4043), Color(0xFF121314), Color(0xFF4B4E52),
+            )
+            TITANIUM -> listOf(
+                Color(0xFFAEB7C2), Color(0xFF4A535F), Color(0xFFC7CFD8),
+                Color(0xFF515A66), Color(0xFF95A0AC), Color(0xFF3A424C), Color(0xFFAEB7C2),
+            )
+            // Carbon draws as a flat near-black base; the weave is layered on
+            // top of it separately rather than faked with a gradient.
+            CARBON -> listOf(Color(0xFF17181A), Color(0xFF0B0C0D))
+        }
+
+    /** The hub picks up a duller version of the same material. */
+    val hubColors: List<Color>
+        get() = when (this) {
+            STEEL -> listOf(Color(0xFF8A939D), Color(0xFF2A3037), Color(0xFF8A939D))
+            GUNMETAL -> listOf(Color(0xFF585C60), Color(0xFF16181A), Color(0xFF585C60))
+            TITANIUM -> listOf(Color(0xFFB7C0CA), Color(0xFF3A424C), Color(0xFFB7C0CA))
+            CARBON -> listOf(Color(0xFF2A2C2E), Color(0xFF0B0C0D), Color(0xFF2A2C2E))
+        }
+
+    val woven: Boolean get() = this == CARBON
+}
+
+/**
  * The traditional analogue instrument: a metal bezel, numerals printed on a
  * black face, dense graduations, and a full length needle with a counterweight
  * swinging from a hub in the middle.
@@ -345,7 +404,7 @@ private val Cream = Color(0xFFF2E9D8)
  * spoiling the look the rest of the time.
  */
 @Composable
-internal fun HeritageGauge(state: GaugeState, modifier: Modifier) {
+internal fun HeritageGauge(state: GaugeState, modifier: Modifier, finish: HeritageFinish = HeritageFinish.STEEL) {
     val measurer = rememberTextMeasurer()
 
     BoxWithConstraints(modifier = modifier.aspectRatio(1f)) {
@@ -358,19 +417,16 @@ internal fun HeritageGauge(state: GaugeState, modifier: Modifier) {
             val bezel = w * 0.032f
 
             // Brushed metal, faked with a sweep gradient rather than a bitmap.
+            // Carbon skips the sweep for a woven texture instead, laid down below.
             drawCircle(
-                brush = Brush.sweepGradient(
-                    colors = listOf(
-                        Color(0xFF7C858F), Color(0xFF2B3138), Color(0xFF98A1AB),
-                        Color(0xFF31383F), Color(0xFF6B747E), Color(0xFF20262C),
-                        Color(0xFF7C858F),
-                    ),
-                    center = center,
-                ),
+                brush = Brush.sweepGradient(colors = finish.bezelColors, center = center),
                 radius = radius,
                 center = center,
                 style = Stroke(width = bezel),
             )
+            if (finish.woven) {
+                drawCarbonWeave(center = center, radius = radius, ringWidth = bezel)
+            }
             drawCircle(
                 color = Color.Black.copy(alpha = 0.55f),
                 radius = radius - bezel * 0.85f,
@@ -391,7 +447,7 @@ internal fun HeritageGauge(state: GaugeState, modifier: Modifier) {
 
             // The redline, printed on the face just inside the graduations.
             for (zone in state.zones) {
-                if (zone.color == ZoneGood) continue
+                if (zone.healthy) continue
                 val from = ((zone.from - state.min) / state.span).coerceIn(0f, 1f)
                 val to = ((zone.to - state.min) / state.span).coerceIn(0f, 1f)
                 if (to - from < 0.004f) continue
@@ -472,10 +528,7 @@ internal fun HeritageGauge(state: GaugeState, modifier: Modifier) {
 
             // Hub, over the needle so the pivot reads as one piece of hardware.
             drawCircle(
-                brush = Brush.sweepGradient(
-                    colors = listOf(Color(0xFF8A939D), Color(0xFF2A3037), Color(0xFF8A939D)),
-                    center = center,
-                ),
+                brush = Brush.sweepGradient(colors = finish.hubColors, center = center),
                 radius = w * 0.042f,
                 center = center,
             )
@@ -530,6 +583,80 @@ internal fun HeritageGauge(state: GaugeState, modifier: Modifier) {
                 )
             }
         }
+    }
+}
+
+/**
+ * A woven carbon fibre look for the Heritage bezel, laid over its flat near
+ * black base coat.
+ *
+ * Real carbon weave is a plain 2x2 twill: alternating light and dark squares
+ * whose diagonal splits flip direction every tile, which is what actually
+ * reads as "woven" rather than just "diagonally hatched." Drawn as small
+ * alternating quads across the bezel's bounding box, clipped to the ring so
+ * nothing spills onto the face, plus a soft diagonal sheen for the clear coat
+ * over the top.
+ */
+private fun DrawScope.drawCarbonWeave(center: Offset, radius: Float, ringWidth: Float) {
+    val outer = radius + ringWidth / 2f
+    val inner = radius - ringWidth / 2f
+    val ring = Path().apply {
+        addOval(Rect(center = center, radius = outer))
+        addOval(Rect(center = center, radius = inner))
+        fillType = PathFillType.EvenOdd
+    }
+
+    clipPath(ring) {
+        val tile = ringWidth * 0.30f
+        val dark = Color(0xFF0C0D0E)
+        val light = Color(0xFF212325)
+        var row = 0
+        var y = center.y - outer
+        while (y < center.y + outer) {
+            var col = 0
+            var x = center.x - outer
+            while (x < center.x + outer) {
+                // The twill flip: every other tile in a checkerboard pattern
+                // swaps which diagonal half is light, which is what makes the
+                // weave look woven instead of just tiled.
+                val flipped = (row + col) % 2 == 0
+                val a = Offset(x, y)
+                val b = Offset(x + tile, y)
+                val c = Offset(x + tile, y + tile)
+                val d = Offset(x, y + tile)
+                drawPath(
+                    Path().apply {
+                        moveTo(a.x, a.y); lineTo(b.x, b.y); lineTo(c.x, c.y); close()
+                    },
+                    color = if (flipped) light else dark,
+                )
+                drawPath(
+                    Path().apply {
+                        moveTo(a.x, a.y); lineTo(d.x, d.y); lineTo(c.x, c.y); close()
+                    },
+                    color = if (flipped) dark else light,
+                )
+                x += tile
+                col++
+            }
+            y += tile
+            row++
+        }
+
+        // The glossy clear coat every real carbon panel is finished with.
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.16f),
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.05f),
+                ),
+                start = Offset(center.x - outer, center.y - outer),
+                end = Offset(center.x + outer, center.y + outer),
+            ),
+            topLeft = Offset(center.x - outer, center.y - outer),
+            size = Size(outer * 2, outer * 2),
+        )
     }
 }
 
@@ -617,7 +744,7 @@ internal fun CockpitGauge(state: GaugeState, modifier: Modifier) {
             // ring has to stay one flat colour or the whole look collapses.
             val stripR = radius + ring * 1.9f
             for (zone in state.zones) {
-                if (zone.color == ZoneGood) continue
+                if (zone.healthy) continue
                 val from = ((zone.from - state.min) / state.span).coerceIn(0f, 1f)
                 val to = ((zone.to - state.min) / state.span).coerceIn(0f, 1f)
                 if (to - from < 0.004f) continue

@@ -1,6 +1,7 @@
 package com.mohid.obd2dash.data
 
 import android.content.Context
+import androidx.compose.ui.graphics.Color
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -53,8 +54,20 @@ enum class GaugeSkin(val label: String, val blurb: String) {
         "Hexagonal bezel, wedge graduations and a hard edged sweep, after the Lamborghini Aventador cluster.",
     ),
     HERITAGE(
-        "Heritage",
+        "Heritage — Steel",
         "Metal bezel, numerals printed on a black face and a full length needle, after the Porsche 911.",
+    ),
+    HERITAGE_GUNMETAL(
+        "Heritage — Gunmetal",
+        "The same traditional dial in a dark, almost matte bezel. Understated rather than shiny.",
+    ),
+    HERITAGE_TITANIUM(
+        "Heritage — Titanium",
+        "The same traditional dial in a cooler, lighter bezel with a faint blue cast.",
+    ),
+    HERITAGE_CARBON(
+        "Heritage — Carbon",
+        "The same traditional dial with a woven carbon fibre bezel under a glossy clear coat.",
     ),
     COCKPIT(
         "Cockpit",
@@ -86,6 +99,23 @@ enum class GaugeSkin(val label: String, val blurb: String) {
     }
 }
 
+/**
+ * The colour the healthy band of a gauge lights up in. Warning and danger
+ * bands never change, on purpose: this only restyles what "everything is
+ * fine" looks like, so amber and red keep meaning the same thing regardless
+ * of which colour is picked here.
+ */
+enum class GaugeAccent(val label: String, val color: Color) {
+    GREEN("Green", Color(0xFF2ED573)),
+    CYAN("Cyan", Color(0xFF35D0E0)),
+    ICE("Ice", Color(0xFF7FD9FF)),
+    VIOLET("Violet", Color(0xFFA78BFA)),
+    ROSE("Rose", Color(0xFFFF6B9D)),
+    EMBER("Ember", Color(0xFFFF7A45)),
+    GOLD("Gold", Color(0xFFE8C468)),
+    LIME("Lime", Color(0xFFA6E22E)),
+}
+
 data class AppSettings(
     val pollIntervalMs: Int = 300,
     val useFrameCountHint: Boolean = true,
@@ -96,6 +126,7 @@ data class AppSettings(
     val alertSoundEnabled: Boolean = true,
     val pressureUnit: PressureUnit = PressureUnit.BAR,
     val gaugeSkin: GaugeSkin = GaugeSkin.SHOWCASE,
+    val gaugeAccent: GaugeAccent = GaugeAccent.GREEN,
     val thresholds: List<ThresholdRule> = DefaultThresholds.rules,
 ) {
     fun thresholdFor(metricKey: String): ThresholdRule? = thresholds.firstOrNull { it.metricKey == metricKey }
@@ -113,6 +144,7 @@ class SettingsStore(private val context: Context) {
         val alertSound = booleanPreferencesKey("alertSound")
         val pressureUnit = stringPreferencesKey("pressureUnit")
         val gaugeSkin = stringPreferencesKey("gaugeSkin")
+        val gaugeAccent = stringPreferencesKey("gaugeAccent")
         val thresholds = stringSetPreferencesKey("thresholds")
     }
 
@@ -132,6 +164,9 @@ class SettingsStore(private val context: Context) {
             gaugeSkin = prefs[Keys.gaugeSkin]
                 ?.let { name -> GaugeSkin.entries.firstOrNull { it.name == name } }
                 ?: defaults.gaugeSkin,
+            gaugeAccent = prefs[Keys.gaugeAccent]
+                ?.let { name -> GaugeAccent.entries.firstOrNull { it.name == name } }
+                ?: defaults.gaugeAccent,
             thresholds = mergeThresholds(prefs[Keys.thresholds]),
         )
     }
@@ -157,6 +192,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setAlertSound(value: Boolean) = edit { it[Keys.alertSound] = value }
     suspend fun setPressureUnit(value: PressureUnit) = edit { it[Keys.pressureUnit] = value.name }
     suspend fun setGaugeSkin(value: GaugeSkin) = edit { it[Keys.gaugeSkin] = value.name }
+    suspend fun setGaugeAccent(value: GaugeAccent) = edit { it[Keys.gaugeAccent] = value.name }
 
     suspend fun setLastDeviceAddress(address: String?) = edit { prefs ->
         if (address == null) prefs.remove(Keys.lastDeviceAddress) else prefs[Keys.lastDeviceAddress] = address

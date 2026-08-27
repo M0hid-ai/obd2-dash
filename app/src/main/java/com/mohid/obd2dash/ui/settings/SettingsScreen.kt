@@ -1,7 +1,11 @@
 package com.mohid.obd2dash.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,13 +13,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -36,6 +45,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.alerts.ThresholdRule
 import com.mohid.obd2dash.data.AppSettings
+import com.mohid.obd2dash.data.GaugeAccent
 import com.mohid.obd2dash.data.GaugeSkin
 import com.mohid.obd2dash.data.PressureUnit
 import com.mohid.obd2dash.obd.metricByKey
@@ -126,6 +138,20 @@ fun SettingsScreen(graph: AppGraph) {
                     )
                 }
             }
+        }
+
+        SectionLabel("Accent colour")
+        Text(
+            "Recolours the healthy band on whichever gauge face you're using. Warning stays " +
+                "amber and danger stays red no matter what you pick here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+        )
+        SettingsCard {
+            AccentSwatchRow(
+                selected = settings.gaugeAccent,
+                onSelect = { scope.launch { store.setGaugeAccent(it) } },
+            )
         }
 
         SectionLabel("Display")
@@ -308,6 +334,56 @@ private fun summarize(rule: ThresholdRule, unit: String): String {
     }
     if (parts.isEmpty()) return "No bounds set"
     return parts.joinToString("   ") + if (unit.isEmpty()) "" else "  $unit"
+}
+
+/**
+ * A row of tappable colour swatches for the healthy-band accent.
+ *
+ * Presented as plain filled circles rather than named list rows, since the
+ * colour itself is the entire content here and a swatch reads faster than a
+ * label ever would.
+ */
+@Composable
+private fun AccentSwatchRow(selected: GaugeAccent, onSelect: (GaugeAccent) -> Unit) {
+    // Eight swatches at a comfortable tap size run slightly wider than a
+    // narrow phone screen, so this scrolls rather than clipping the last one.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        GaugeAccent.entries.forEach { accent ->
+            val isSelected = accent == selected
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (isSelected) {
+                            Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(3.dp)
+                    .clip(CircleShape)
+                    .background(accent.color)
+                    .clickable(onClick = { onSelect(accent) }),
+            ) {
+                if (isSelected) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = accent.label,
+                        tint = Color.Black.copy(alpha = 0.55f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
