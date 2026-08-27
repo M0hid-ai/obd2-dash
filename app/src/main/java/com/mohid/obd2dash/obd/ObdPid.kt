@@ -241,10 +241,17 @@ object PidRegistry {
     fun byKey(key: String): ObdPid? = keyIndex[key]
 
     /**
-     * Polled every cycle. These are what the gauges move on, so they need the
+     * Polled every cycle. These are what the four dashboard gauges move on and
+     * what the alert engine watches for a fast-moving breach, so they need the
      * full sample rate. Everything else is round-robined one per cycle.
+     *
+     * Throttle and engine load used to be in here too, but neither drives a
+     * gauge or a time-critical alert, and each one was a full request-response
+     * round trip added to every cycle. On a real Bluetooth Classic connection
+     * that round trip is the actual bottleneck, so dropping two of five fast
+     * reads measurably speeds up the cycle everything else depends on.
      */
-    val highRate: List<ObdPid> = listOf(RPM, SPEED, MAP, THROTTLE, ENGINE_LOAD)
+    val highRate: List<ObdPid> = listOf(RPM, SPEED, MAP)
 
     /**
      * Barometric pressure only moves with the weather and your altitude, so it

@@ -2,6 +2,7 @@ package com.mohid.obd2dash
 
 import com.mohid.obd2dash.alerts.AlertEngine
 import com.mohid.obd2dash.alerts.AlertSeverity
+import com.mohid.obd2dash.alerts.AlertUpdate
 import com.mohid.obd2dash.alerts.DefaultThresholds
 import com.mohid.obd2dash.data.db.MetricPack
 import com.mohid.obd2dash.obd.DiagnosticCode
@@ -108,24 +109,38 @@ class SimulatedSessionTest {
 
 class AlertEngineTest {
 
-    private fun snapshot(vararg values: Pair<String, Float>, at: Long = 0L) =
+    /** Roughly a real Bluetooth Classic cycle: slower than the demo loop. */
+    private val cycleMs = 850L
+
+    private fun snapshot(vararg values: Pair<String, Float>, at: Long) =
         MetricSnapshot(at, values.toMap())
 
     private fun engine() = AlertEngine().apply { setRules(DefaultThresholds.rules) }
 
+    /** Feeds the same reading [times] times, [cycleMs] apart, starting at t=0. */
+    private fun AlertEngine.evaluateRepeated(key: String, value: Float, times: Int): AlertUpdate {
+        var last: AlertUpdate? = null
+        repeat(times) { i -> last = evaluate(snapshot(key to value, at = i * cycleMs)) }
+        return last!!
+    }
+
     @Test
     fun `a single bad frame does not raise an alert`() {
         val engine = engine()
-        val update = engine.evaluate(snapshot("coolantTemp" to 130f))
+        val update = engine.evaluate(snapshot("coolantTemp" to 130f, at = 0L))
         assertTrue(update.active.isEmpty())
         assertTrue(update.newlyRaised.isEmpty())
     }
 
     @Test
-    fun `a sustained breach raises once the streak is met`() {
+    fun `a sustained breach raises once it has held long enough`() {
         val engine = engine()
-        repeat(2) { engine.evaluate(snapshot("coolantTemp" to 106f)) }
-        val update = engine.evaluate(snapshot("coolantTemp" to 106f))
+        // One sample alone can't clear the minimum hold time no matter how
+        // many readings it takes, so the first call must never raise.
+        val first = engine.evaluate(snapshot("coolantTemp" to 106f, at = 0L))
+        assertTrue(first.newlyRaised.isEmpty())
+
+        val update = engine.evaluate(snapshot("coolantTemp" to 106f, at = cycleMs))
 
         assertEquals(1, update.newlyRaised.size)
         assertEquals(AlertSeverity.WARNING, update.active.single().severity)
@@ -133,13 +148,25 @@ class AlertEngineTest {
     }
 
     @Test
+    fun `a breach that clears before the hold time never raises`() {
+        val engine = engine()
+        engine.evaluate(snapshot("coolantTemp" to 106f, at = 0L))
+        // Back in range well inside the hold window: the streak resets rather
+        // than carrying over, so this must not have raised anything.
+        val update = engine.evaluate(snapshot("coolantTemp" to 90f, at = 200L))
+
+        assertTrue(update.newlyRaised.isEmpty())
+        assertTrue(update.active.isEmpty())
+    }
+
+    @Test
     fun `crossing into the critical band re-sounds and clears the acknowledgement`() {
         val engine = engine()
-        repeat(3) { engine.evaluate(snapshot("coolantTemp" to 106f)) }
+        engine.evaluateRepeated("coolantTemp", 106f, times = 3)
         engine.acknowledge("coolantTemp")
         assertTrue(engine.snapshot().single().acknowledged)
 
-        val update = engine.evaluate(snapshot("coolantTemp" to 115f))
+        val update = engine.evaluate(snapshot("coolantTemp" to 115f, at = 3 * cycleMs))
 
         assertEquals(1, update.newlyRaised.size)
         assertEquals(AlertSeverity.CRITICAL, update.active.single().severity)
@@ -149,22 +176,22 @@ class AlertEngineTest {
     @Test
     fun `an alert holds through the hysteresis band and clears past it`() {
         val engine = engine()
-        repeat(3) { engine.evaluate(snapshot("coolantTemp" to 106f)) }
+        engine.evaluateRepeated("coolantTemp", 106f, times = 3)
 
         // Back under the 105 bound, but only just: the alert must hold rather
         // than flicker off and straight back on.
-        val hovering = engine.evaluate(snapshot("coolantTemp" to 104f))
+        val hovering = engine.evaluate(snapshot("coolantTemp" to 104f, at = 3 * cycleMs))
         assertEquals(1, hovering.active.size)
 
         // Comfortably back in range.
-        val recovered = engine.evaluate(snapshot("coolantTemp" to 99f))
+        val recovered = engine.evaluate(snapshot("coolantTemp" to 99f, at = 4 * cycleMs))
         assertTrue(recovered.active.isEmpty())
     }
 
     @Test
     fun `low-side bounds fire too`() {
         val engine = engine()
-        repeat(3) { engine.evaluate(snapshot("controlVoltage" to 11.4f)) }
+        engine.evaluateRepeated("controlVoltage", 11.4f, times = 3)
         val alert = engine.snapshot().single()
         assertEquals("controlVoltage", alert.metricKey)
         assertEquals(AlertSeverity.CRITICAL, alert.severity)
@@ -173,7 +200,7 @@ class AlertEngineTest {
     @Test
     fun `boost thresholds are evaluated on the derived metric`() {
         val engine = engine()
-        repeat(3) { engine.evaluate(snapshot("boost" to 120f)) }
+        engine.evaluateRepeated("boost", 120f, times = 3)
         val alert = engine.snapshot().single()
         assertEquals("boost", alert.metricKey)
         assertEquals(AlertSeverity.CRITICAL, alert.severity)
@@ -183,7 +210,7 @@ class AlertEngineTest {
     @Test
     fun `disabling a rule drops its live alert`() {
         val engine = engine()
-        repeat(3) { engine.evaluate(snapshot("coolantTemp" to 115f)) }
+        engine.evaluateRepeated("coolantTemp", 115f, times = 3)
         assertEquals(1, engine.snapshot().size)
 
         engine.setRules(DefaultThresholds.rules.map { it.copy(enabled = false) })

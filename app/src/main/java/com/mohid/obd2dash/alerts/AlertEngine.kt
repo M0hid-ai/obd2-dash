@@ -40,10 +40,19 @@ data class AlertUpdate(
  * Two pieces of hysteresis keep it from flapping, which matters because a
  * banner that blinks on and off is worse than useless to someone driving:
  *
- *  - a breach must persist for [RAISE_AFTER_SAMPLES] consecutive samples
- *    before it raises anything, so one corrupt frame is ignored;
+ *  - a breach must persist for [MIN_BREACH_HOLD_MS] of wall clock time (and
+ *    at least [MIN_BREACH_SAMPLES] readings) before it raises anything, so
+ *    one corrupt frame is ignored;
  *  - a raised alert only clears once the value comes back inside its bound by
  *    a margin, rather than the instant it grazes the line.
+ *
+ * The hold is measured in time rather than sample count on purpose: the real
+ * cycle time is set by how fast the adapter and ECU answer, not by the app,
+ * and on a real Bluetooth Classic connection it runs closer to 800ms per
+ * cycle than the roughly 300ms a fixed sample count assumes. Counting samples
+ * let a short but real breach, a couple of seconds over an RPM limit, decay
+ * before three of them had even been read. Counting time instead keeps the
+ * same real-world delay regardless of how fast the adapter happens to answer.
  *
  * Alerts persist until they clear. Acknowledging one silences it and lets the
  * UI de-emphasise it, but it stays in the list while the condition holds.
@@ -51,14 +60,18 @@ data class AlertUpdate(
 class AlertEngine {
 
     private companion object {
-        const val RAISE_AFTER_SAMPLES = 3
+        const val MIN_BREACH_SAMPLES = 2
+        const val MIN_BREACH_HOLD_MS = 600L
 
         /** Re-entry margin, as a fraction of the metric's display range. */
         const val HYSTERESIS_FRACTION = 0.02f
     }
 
+    /** How long a metric has been breaching, and how many readings that covers. */
+    private data class Streak(val count: Int, val since: Long)
+
     private var rules: Map<String, ThresholdRule> = emptyMap()
-    private val breachStreak = HashMap<String, Int>()
+    private val breachStreak = HashMap<String, Streak>()
     private val active = LinkedHashMap<String, ActiveAlert>()
 
     fun setRules(newRules: List<ThresholdRule>) {
@@ -76,19 +89,21 @@ class AlertEngine {
             val breach = rule.classify(value)
 
             if (breach == null) {
-                breachStreak[key] = 0
+                breachStreak.remove(key)
                 val existing = active[key] ?: continue
                 if (canClear(rule, existing, value)) active.remove(key)
                 continue
             }
 
             val (severity, direction) = breach
-            val streak = (breachStreak[key] ?: 0) + 1
+            val prior = breachStreak[key]
+            val streak = if (prior == null) Streak(1, now) else Streak(prior.count + 1, prior.since)
             breachStreak[key] = streak
 
             val existing = active[key]
             if (existing == null) {
-                if (streak < RAISE_AFTER_SAMPLES) continue
+                val held = now - streak.since
+                if (streak.count < MIN_BREACH_SAMPLES || held < MIN_BREACH_HOLD_MS) continue
                 val alert = ActiveAlert(
                     metricKey = key,
                     severity = severity,
