@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
@@ -70,161 +71,202 @@ import com.mohid.obd2dash.ui.theme.ZoneGood
 import com.mohid.obd2dash.ui.theme.ZoneWarn
 import kotlinx.coroutines.launch
 
+/**
+ * A lazy list rather than a plain scrolling [Column].
+ *
+ * The gauge face picker alone puts nine live, animating dial previews on this
+ * screen. A plain `Column().verticalScroll()` composes and draws every child
+ * up front regardless of what is actually on screen, so all nine, and every
+ * threshold card below them, were live and redrawing every frame the instant
+ * Settings opened, whether scrolled into view or not. [LazyColumn] only
+ * composes what is near the viewport, which is what actually made the gauge
+ * face and thresholds lists need to be section by section here rather than
+ * one big block: each row has to be its own list item for the laziness to
+ * apply to it individually.
+ */
 @Composable
 fun SettingsScreen(graph: AppGraph) {
     val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
     val scope = rememberCoroutineScope()
     val store = graph.settingsStore
 
-    Column(
-        Modifier
+    LazyColumn(
+        modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SectionLabel("Connection")
-        SettingsCard {
-            SwitchRow(
-                title = "Demo mode",
-                subtitle = "Run against a simulated turbo engine instead of the adapter.",
-                checked = settings.demoMode,
-                onCheckedChange = { scope.launch { store.setDemoMode(it) } },
-            )
-            RowDivider()
-            SwitchRow(
-                title = "Automatic trips",
-                subtitle = "Begin a trip when the engine starts and end it when it stops. " +
-                    "Off means the Start and Stop buttons are the only things that " +
-                    "open or close a trip.",
-                checked = settings.autoStartTripOnConnect,
-                onCheckedChange = { scope.launch { store.setAutoStartTrip(it) } },
-            )
-            RowDivider()
-            SwitchRow(
-                title = "Fast responses",
-                subtitle = "Tells the ELM327 to stop waiting after the first reply frame. " +
-                    "Roughly doubles the sample rate; turn off if a clone adapter misbehaves.",
-                checked = settings.useFrameCountHint,
-                onCheckedChange = { scope.launch { store.setFrameCountHint(it) } },
-            )
-            RowDivider()
-            SliderRow(
-                title = "Poll interval",
-                value = settings.pollIntervalMs.toFloat(),
-                valueLabel = "${settings.pollIntervalMs} ms",
-                range = 150f..800f,
-                subtitle = "Target time per cycle. Lower is smoother but leaves the adapter " +
-                    "less headroom; the loop never runs faster than the adapter answers.",
-                onValueChange = { scope.launch { store.setPollIntervalMs(it.toInt()) } },
-            )
+        item {
+            SectionLabel("Connection")
         }
-
-        SectionLabel("Gauge face")
-        Text(
-            "Each face is modelled on a real instrument cluster. Compare all puts a different " +
-                "one on each of the four dials so they can be judged on live data.",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextMuted,
-        )
-        SettingsCard {
-            Column {
-                GaugeSkin.entries.forEachIndexed { index, skin ->
-                    if (index > 0) RowDivider()
-                    SkinRow(
-                        skin = skin,
-                        selected = settings.gaugeSkin == skin,
-                        onSelect = { scope.launch { store.setGaugeSkin(skin) } },
-                    )
-                }
+        item {
+            SettingsCard {
+                SwitchRow(
+                    title = "Demo mode",
+                    subtitle = "Run against a simulated turbo engine instead of the adapter.",
+                    checked = settings.demoMode,
+                    onCheckedChange = { scope.launch { store.setDemoMode(it) } },
+                )
+                RowDivider()
+                SwitchRow(
+                    title = "Automatic trips",
+                    subtitle = "Begin a trip when the engine starts and end it when it stops. " +
+                        "Off means the Start and Stop buttons are the only things that " +
+                        "open or close a trip.",
+                    checked = settings.autoStartTripOnConnect,
+                    onCheckedChange = { scope.launch { store.setAutoStartTrip(it) } },
+                )
+                RowDivider()
+                SwitchRow(
+                    title = "Fast responses",
+                    subtitle = "Tells the ELM327 to stop waiting after the first reply frame. " +
+                        "Roughly doubles the sample rate; turn off if a clone adapter misbehaves.",
+                    checked = settings.useFrameCountHint,
+                    onCheckedChange = { scope.launch { store.setFrameCountHint(it) } },
+                )
+                RowDivider()
+                SliderRow(
+                    title = "Poll interval",
+                    value = settings.pollIntervalMs.toFloat(),
+                    valueLabel = "${settings.pollIntervalMs} ms",
+                    range = 150f..800f,
+                    subtitle = "Target time per cycle. Lower is smoother but leaves the adapter " +
+                        "less headroom; the loop never runs faster than the adapter answers.",
+                    onValueChange = { scope.launch { store.setPollIntervalMs(it.toInt()) } },
+                )
             }
         }
 
-        SectionLabel("Accent colour")
-        Text(
-            "Recolours the healthy band on whichever gauge face you're using. Warning stays " +
-                "amber and danger stays red no matter what you pick here.",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextMuted,
-        )
-        SettingsCard {
-            AccentSwatchRow(
-                selected = settings.gaugeAccent,
-                onSelect = { scope.launch { store.setGaugeAccent(it) } },
+        item {
+            SectionLabel("Gauge face")
+        }
+        item {
+            Text(
+                "Each face is modelled on a real instrument cluster. Compare all puts a different " +
+                    "one on each of the four dials so they can be judged on live data.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+            )
+        }
+        items(GaugeSkin.entries, key = { it.name }) { skin ->
+            SkinRow(
+                skin = skin,
+                selected = settings.gaugeSkin == skin,
+                onSelect = { scope.launch { store.setGaugeSkin(skin) } },
             )
         }
 
-        SectionLabel("Display")
-        SettingsCard {
-            Column(Modifier.padding(14.dp)) {
-                Text("Boost unit", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "Boost is MAP minus ambient pressure, so it reads negative under vacuum.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
+        item {
+            SectionLabel("Accent colour")
+        }
+        item {
+            Text(
+                "Recolours the healthy band on whichever gauge face you're using. Warning stays " +
+                    "amber and danger stays red no matter what you pick here.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+            )
+        }
+        item {
+            SettingsCard {
+                AccentSwatchRow(
+                    selected = settings.gaugeAccent,
+                    onSelect = { scope.launch { store.setGaugeAccent(it) } },
                 )
-                SingleChoiceSegmentedButtonRow(Modifier.padding(top = 10.dp)) {
-                    PressureUnit.entries.forEachIndexed { index, unit ->
-                        SegmentedButton(
-                            selected = settings.pressureUnit == unit,
-                            onClick = { scope.launch { store.setPressureUnit(unit) } },
-                            shape = SegmentedButtonDefaults.itemShape(index, PressureUnit.entries.size),
-                        ) {
-                            Text(unit.label)
+            }
+        }
+
+        item {
+            SectionLabel("Display")
+        }
+        item {
+            SettingsCard {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Boost unit", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Boost is MAP minus ambient pressure, so it reads negative under vacuum.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                    )
+                    SingleChoiceSegmentedButtonRow(Modifier.padding(top = 10.dp)) {
+                        PressureUnit.entries.forEachIndexed { index, unit ->
+                            SegmentedButton(
+                                selected = settings.pressureUnit == unit,
+                                onClick = { scope.launch { store.setPressureUnit(unit) } },
+                                shape = SegmentedButtonDefaults.itemShape(index, PressureUnit.entries.size),
+                            ) {
+                                Text(unit.label)
+                            }
                         }
                     }
                 }
             }
         }
 
-        SectionLabel("Alerts")
-        SettingsCard {
-            SwitchRow(
-                title = "Alert chime",
-                subtitle = "Two-tone dash chime plus a persistent on-screen banner. " +
-                    "Turning this off leaves the banner but silences the sound.",
-                checked = settings.alertSoundEnabled,
-                onCheckedChange = { scope.launch { store.setAlertSound(it) } },
-            )
+        item {
+            SectionLabel("Alerts")
+        }
+        item {
+            SettingsCard {
+                SwitchRow(
+                    title = "Alert chime",
+                    subtitle = "Two-tone dash chime plus a persistent on-screen banner. " +
+                        "Turning this off leaves the banner but silences the sound.",
+                    checked = settings.alertSoundEnabled,
+                    onCheckedChange = { scope.launch { store.setAlertSound(it) } },
+                )
+            }
         }
 
-        SectionLabel("Thresholds")
-        Text(
-            "Defaults are set for a 2023 Move turbo. Leave a field empty to stop checking that bound.",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextMuted,
-        )
-        settings.thresholds.forEach { rule ->
+        item {
+            SectionLabel("Thresholds")
+        }
+        item {
+            Text(
+                "Defaults are set for a 2023 Move turbo. Leave a field empty to stop checking that bound.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+            )
+        }
+        items(settings.thresholds, key = { it.metricKey }) { rule ->
             ThresholdCard(
                 rule = rule,
                 onSave = { scope.launch { store.saveThreshold(it) } },
             )
         }
-        TextButton(onClick = { scope.launch { store.resetThresholds() } }) {
-            Text("Reset all thresholds to defaults", color = ZoneWarn)
-        }
-
-        SectionLabel("Cloud sync")
-        SettingsCard {
-            SwitchRow(
-                title = "Live mode",
-                subtitle = "Uploads in near real time instead of once per trip. Off by default " +
-                    "to save mobile data and battery. Needs Firebase configured.",
-                checked = settings.liveMode,
-                onCheckedChange = { scope.launch { store.setLiveMode(it) } },
-            )
-            RowDivider()
-            Column(Modifier.padding(14.dp)) {
-                Text(
-                    "Firestore upload is not wired up yet. Drop a google-services.json into " +
-                        "app/ and the trip schema is already carrying a synced-at stamp for it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
-                )
+        item {
+            TextButton(onClick = { scope.launch { store.resetThresholds() } }) {
+                Text("Reset all thresholds to defaults", color = ZoneWarn)
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        item {
+            SectionLabel("Cloud sync")
+        }
+        item {
+            SettingsCard {
+                SwitchRow(
+                    title = "Live mode",
+                    subtitle = "Uploads in near real time instead of once per trip. Off by default " +
+                        "to save mobile data and battery. Needs Firebase configured.",
+                    checked = settings.liveMode,
+                    onCheckedChange = { scope.launch { store.setLiveMode(it) } },
+                )
+                RowDivider()
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "Firestore upload is not wired up yet. Drop a google-services.json into " +
+                            "app/ and the trip schema is already carrying a synced-at stamp for it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                    )
+                }
+            }
+        }
+
+        item {
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 
@@ -392,47 +434,53 @@ private fun AccentSwatchRow(selected: GaugeAccent, onSelect: (GaugeAccent) -> Un
  * The preview runs on a fixed sample reading rather than live data: the point
  * is to compare how the faces draw, and four dials all sweeping at once would
  * fight for attention instead of making the difference obvious.
+ *
+ * Each row is its own card rather than one shared list, since it is now a
+ * standalone item in the settings [LazyColumn]: laziness only helps if each
+ * row can be composed and discarded on its own.
  */
 @Composable
 private fun SkinRow(skin: GaugeSkin, selected: Boolean, onSelect: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onSelect)
-        Column(
+    SettingsCard {
+        Row(
             Modifier
-                .weight(1f)
-                .padding(start = 6.dp, end = 10.dp),
+                .fillMaxWidth()
+                .clickable(onClick = onSelect)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                skin.label,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (selected) Cyan else MaterialTheme.colorScheme.onSurface,
-            )
-            Text(skin.blurb, style = MaterialTheme.typography.bodySmall, color = TextMuted)
-        }
-        if (skin != GaugeSkin.SHOWCASE) {
-            MetricGauge(
-                label = "RPM",
-                value = PREVIEW_RPM,
-                unit = "rpm",
-                min = 0f,
-                max = 8000f,
-                zones = listOf(
-                    GaugeZone(0f, 5800f, ZoneGood),
-                    GaugeZone(5800f, 6800f, ZoneWarn),
-                    GaugeZone(6800f, 8000f, ZoneDanger),
-                ),
-                valueText = PREVIEW_RPM.toInt().toString(),
-                animationMillis = 1,
-                skin = skin,
-                modifier = Modifier.width(116.dp),
-            )
+            RadioButton(selected = selected, onClick = onSelect)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(start = 6.dp, end = 10.dp),
+            ) {
+                Text(
+                    skin.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) Cyan else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(skin.blurb, style = MaterialTheme.typography.bodySmall, color = TextMuted)
+            }
+            if (skin != GaugeSkin.SHOWCASE) {
+                MetricGauge(
+                    label = "RPM",
+                    value = PREVIEW_RPM,
+                    unit = "rpm",
+                    min = 0f,
+                    max = 8000f,
+                    zones = listOf(
+                        GaugeZone(0f, 5800f, ZoneGood, healthy = true),
+                        GaugeZone(5800f, 6800f, ZoneWarn),
+                        GaugeZone(6800f, 8000f, ZoneDanger),
+                    ),
+                    valueText = PREVIEW_RPM.toInt().toString(),
+                    animationMillis = 1,
+                    skin = skin,
+                    modifier = Modifier.width(116.dp),
+                )
+            }
         }
     }
 }

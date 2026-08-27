@@ -46,6 +46,7 @@ import com.mohid.obd2dash.ui.theme.TextMuted
 import com.mohid.obd2dash.ui.theme.TextPrimary
 import com.mohid.obd2dash.ui.theme.ZoneGood
 import kotlinx.coroutines.delay
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -590,12 +591,16 @@ internal fun HeritageGauge(state: GaugeState, modifier: Modifier, finish: Herita
  * A woven carbon fibre look for the Heritage bezel, laid over its flat near
  * black base coat.
  *
- * Real carbon weave is a plain 2x2 twill: alternating light and dark squares
- * whose diagonal splits flip direction every tile, which is what actually
- * reads as "woven" rather than just "diagonally hatched." Drawn as small
- * alternating quads across the bezel's bounding box, clipped to the ring so
- * nothing spills onto the face, plus a soft diagonal sheen for the clear coat
- * over the top.
+ * Tiled in polar coordinates around the ring rather than a Cartesian grid
+ * clipped to it. A Cartesian grid over the ring's bounding square spends
+ * almost every tile on the empty middle that the clip mask then throws away;
+ * at a fine enough grain to look woven that was on the order of ten thousand
+ * `Path` builds and draws every single frame, expensive enough on its own to
+ * explain a whole screen feeling slow. Walking the ring itself draws only
+ * tiles that are ever visible, on the order of a hundred regardless of the
+ * gauge's physical size, for the same grain relative to the ring's own
+ * thickness. The trade is the diagonal twill split is gone, just alternating
+ * flat tiles now, which at this scale reads the same as brushed texture.
  */
 private fun DrawScope.drawCarbonWeave(center: Offset, radius: Float, ringWidth: Float) {
     val outer = radius + ringWidth / 2f
@@ -607,40 +612,31 @@ private fun DrawScope.drawCarbonWeave(center: Offset, radius: Float, ringWidth: 
     }
 
     clipPath(ring) {
-        val tile = ringWidth * 0.30f
+        val circumference = 2f * PI.toFloat() * radius
+        val tileArc = ringWidth * 1.4f
+        val steps = (circumference / tileArc).toInt().coerceIn(24, 160)
+        val degreesPerStep = 360f / steps
         val dark = Color(0xFF0C0D0E)
         val light = Color(0xFF212325)
-        var row = 0
-        var y = center.y - outer
-        while (y < center.y + outer) {
-            var col = 0
-            var x = center.x - outer
-            while (x < center.x + outer) {
-                // The twill flip: every other tile in a checkerboard pattern
-                // swaps which diagonal half is light, which is what makes the
-                // weave look woven instead of just tiled.
-                val flipped = (row + col) % 2 == 0
-                val a = Offset(x, y)
-                val b = Offset(x + tile, y)
-                val c = Offset(x + tile, y + tile)
-                val d = Offset(x, y + tile)
-                drawPath(
-                    Path().apply {
-                        moveTo(a.x, a.y); lineTo(b.x, b.y); lineTo(c.x, c.y); close()
-                    },
-                    color = if (flipped) light else dark,
-                )
-                drawPath(
-                    Path().apply {
-                        moveTo(a.x, a.y); lineTo(d.x, d.y); lineTo(c.x, c.y); close()
-                    },
-                    color = if (flipped) dark else light,
-                )
-                x += tile
-                col++
-            }
-            y += tile
-            row++
+        // One Path, reset and reused every tile, so the weave costs zero
+        // allocations beyond this single object regardless of tile count.
+        val tile = Path()
+
+        for (i in 0 until steps) {
+            val a0 = i * degreesPerStep
+            val a1 = a0 + degreesPerStep
+            val p0 = polar(center, inner, a0)
+            val p1 = polar(center, outer, a0)
+            val p2 = polar(center, outer, a1)
+            val p3 = polar(center, inner, a1)
+
+            tile.reset()
+            tile.moveTo(p0.x, p0.y)
+            tile.lineTo(p1.x, p1.y)
+            tile.lineTo(p2.x, p2.y)
+            tile.lineTo(p3.x, p3.y)
+            tile.close()
+            drawPath(tile, color = if (i % 2 == 0) light else dark)
         }
 
         // The glossy clear coat every real carbon panel is finished with.
