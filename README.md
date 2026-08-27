@@ -8,7 +8,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2025.06-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![Room](https://img.shields.io/badge/Room-2.7.2-FF6F00?style=flat-square&logo=sqlite&logoColor=white)](https://developer.android.com/training/data-storage/room)
-[![Tests](https://img.shields.io/badge/tests-41%20passing-2ED573?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-42%20passing-2ED573?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 <img src="docs/screenshots/dashboard-alert.png" width="260" alt="Live dashboard with a critical alert" />
@@ -39,11 +39,13 @@ that single number tells you more than the rest of the dashboard combined.
 |---|---|
 | **Runs without the car** | A built-in simulated ECU drives a two-minute cycle so the whole app works on your desk. Details [below](#running-without-the-car). |
 | **Nothing hardcoded per ECU** | Supported PIDs are discovered at connect time from the `0100` / `0120` / `0140` bitmasks. 60+ Mode 01 parameters decodable. |
-| **Alerts that do not flap** | A breach must hold for three samples before it fires, and must recover past a hysteresis margin before it clears. |
+| **Alerts that do not flap** | A breach must hold for 600ms of wall clock time before it fires, and must recover past a hysteresis margin before it clears. Measured in time rather than a sample count, because the real cycle time moves depending on how fast the adapter answers. |
 | **Trips survive the glovebox** | A foreground service keeps logging through screen off and app backgrounding. Trips left open by a crash are closed on next launch. |
 | **Knows when the engine stops** | The adapter is powered from OBD pin 16, so it stays alive with the car locked and a Bluetooth drop never means "engine off". Engine state is read from RPM instead. |
 | **Everything hand drawn** | Gauges, charts and the route trace are Compose canvas. No charting library, no Maps API key. |
 | **The route is the data** | The GPS track is coloured by speed, so where you pressed on shows up without reading a chart. |
+| **Nine gauge faces, one accent colour** | Hexa, Heritage in four bezel finishes, Cockpit, Circuit, or the original. Recolour the healthy band to taste, or leave the skin on Compare all and judge them side by side against live data. |
+| **Built to be glanced at, not read** | A push-start button for trip recording, a segmented shift light bar across the top of the screen, and a mirrored windshield HUD mode for a phone propped flat on the dash. |
 
 ## Screens
 
@@ -79,6 +81,32 @@ that single number tells you more than the rest of the dashboard combined.
     <td>Defaults tuned for the KF-VET. Edit any bound, leave one blank to stop checking it.</td>
   </tr>
 </table>
+
+## Gauge faces
+
+The four main dials are not one drawing recoloured over and over. Each face disagrees about sweep
+angle, needle length, whether there is a needle at all, and where the number sits, because that is
+what actually makes two dials read as different instruments rather than the same instrument in a
+different paint scheme.
+
+| Face | Modelled on | What's different |
+|---|---|---|
+| Original | — | The dial this app shipped with: thick lit track, redline printed outside it, short blade needle. |
+| Hexa | Lamborghini Aventador cluster | Hexagonal bezel, wedge graduations that taper inward, hard edged sweep with no rounded caps anywhere. |
+| Heritage — Steel | Porsche 911 five dial cluster | Brushed metal bezel, numerals printed on a black face, full length needle with a counterweight. |
+| Heritage — Gunmetal | same, dark finish | Same traditional dial, dark and almost matte instead of shiny. |
+| Heritage — Titanium | same, cool finish | Same dial again, cooler and lighter with a faint blue cast. |
+| Heritage — Carbon | same, woven finish | Same dial with a woven carbon fibre bezel under a glossy clear coat. |
+| Cockpit | Audi virtual cockpit | One hairline ring, a puck for a pointer, a very large number. Everything that is not information is gone. |
+| Circuit | GT-R and race car shift displays | A segmented shift bar bent into an arc, with a peak hold marker that catches a spike before you could look down and see it. |
+
+Pick a favourite in Settings, or leave it on **Compare all** and it hands out a different face per
+dial, paired to the metric it suits: Hexa on the tachometer, Heritage on road speed, Cockpit on
+coolant, Circuit on boost.
+
+A healthy-band accent colour sits alongside the face picker. It only recolours the "everything is
+fine" band, deliberately: warning stays amber and danger stays red regardless of what is picked, so
+the alert colour coding never changes meaning just because the theme did.
 
 ## How it fits together
 
@@ -117,17 +145,26 @@ You cannot ask for twenty parameters at 5 Hz, so the loop spends its budget deli
 
 | Tier | Contents | Rate |
 |---|---|---|
-| **Fast** | RPM, speed, MAP, throttle, engine load | every cycle |
-| **Slow** | everything else the ECU supports | one per cycle, round robin |
+| **Fast** | RPM, speed, MAP | every cycle |
+| **Slow** | everything else the ECU supports, including throttle and engine load | one per cycle, round robin |
 | **Rare** | barometric, fuel level, odometer counters | one every 60 s |
 
 Barometric pressure tracks the weather, not your right foot, so polling it at 3 Hz would be pure
 waste. It gets read once at connect and refreshed on a timer, which leaves the sample rate for the
 metrics that actually move.
 
-Measured on device, with the frame-count hint enabled: **254 ms per cycle, 3.9 samples/s.** A PID
-that is advertised in the support bitmask but answers `NO DATA` three times gets dropped from the
-rotation for the rest of the session.
+Throttle and engine load used to sit in the fast tier too. Neither drives a gauge or a time-critical
+alert, and each one is a full request-response round trip added to every cycle. Moving them to the
+slow rotation bought back two reads per cycle for free.
+
+Measured on the bench, with the frame-count hint enabled: 254 ms per cycle, 3.9 samples/s. Measured
+on a real fifteen minute drive over an actual Bluetooth Classic connection: closer to **850 ms per
+cycle, 1.2 samples/s.** Real ECU turnaround over real radio is slower than it looks on a desk, and it
+is why alert hysteresis is [measured in time rather than a sample count](#why-alerts-need-hysteresis):
+a fixed count of three samples meant a two and a half second alert delay on the road, long enough
+that a one or two second rev spike above a self-set limit came and went before the alert ever fired.
+A PID that is advertised in the support bitmask but answers `NO DATA` three times gets dropped from
+the rotation for the rest of the session.
 
 ## Running without the car
 
@@ -154,7 +191,7 @@ Then pair your ELM327 in Android's Bluetooth settings first (the usual PIN is `1
 pick it on the Adapter screen.
 
 ```bash
-./gradlew testDebugUnitTest   # 41 JVM tests, no device needed
+./gradlew testDebugUnitTest   # 42 JVM tests, no device needed
 ./gradlew assembleDebug       # APK only
 ```
 
@@ -213,7 +250,7 @@ buying anything back. Room's KSP processor is the only one in the build.
 
 ## Design decisions worth explaining
 
-<details>
+<details id="why-alerts-need-hysteresis">
 <summary><b>Why alerts need hysteresis</b></summary>
 
 <br>
@@ -221,10 +258,18 @@ buying anything back. Room's KSP processor is the only one in the build.
 A banner that blinks on and off at the threshold boundary is worse than useless to someone driving.
 Two guards stop that:
 
-- a breach must persist for **three consecutive samples** before anything is raised, so one corrupt
-  frame is ignored
+- a breach must hold for **600ms of wall clock time**, and at least two readings, before anything is
+  raised, so one corrupt frame is ignored
 - a raised alert only clears once the value comes back inside its bound by **2% of the metric's
   range**, not the instant it grazes the line
+
+The raise guard used to be three consecutive samples rather than a duration, until a real fifteen
+minute drive showed why that was the wrong unit. The real cycle time is set by how fast the adapter
+and ECU answer, not by the app: roughly 300ms in the simulator, closer to 850ms over an actual
+Bluetooth Classic connection. Three samples meant a 2.5 second delay on the road, long enough that a
+one or two second rev spike above a self-set limit came and went before any alert fired. Counting
+time instead of samples keeps the same real-world delay regardless of how fast the adapter happens to
+answer that day.
 
 Escalating from warning to critical counts as a new event: it sounds again and clears the
 acknowledgement. Dropping back down does not.
@@ -282,7 +327,7 @@ Deliberately not text to speech. Speech is slow to parse and easy to talk over.
 
 ## Testing
 
-41 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
+42 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
 wrong decoder does not crash, it just shows you a plausible number that happens to be false.
 
 - reply sanitising: embedded spaces, `SEARCHING...` notices, multi-frame counters, truncated frames
@@ -304,6 +349,9 @@ The UI has no instrumented tests. It was verified by running it.
 - [x] Threshold alerts, chime plus persistent banner
 - [x] Trip reports with charts and route
 - [x] Editable thresholds and settings
+- [x] Switchable gauge faces and a healthy-band accent colour
+- [x] Push-start ignition control, shift light bar, and a mirrored windshield HUD mode
+- [x] Time-based alert hysteresis, retuned from a real drive
 - [ ] Firestore batch upload after each trip
 - [ ] Web dashboard reading from Firestore
 - [ ] Retention policy for raw reading rows
