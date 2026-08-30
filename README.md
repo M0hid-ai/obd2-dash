@@ -2,7 +2,7 @@
 
 # OBD2 Dash
 
-**A live engine dashboard and trip logger for my Daihatsu Move turbo, over a £12 ELM327 adapter.**
+**A live engine dashboard and trip logger for any OBD2 car, over a cheap ELM327 Bluetooth adapter.**
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2025.06-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
@@ -21,17 +21,65 @@
 
 ## What this is
 
-My car has a 660cc turbo engine and a dashboard that tells me almost nothing about it. This app plugs
-that gap. It talks to a cheap ELM327 Bluetooth adapter in the OBD2 port, polls the ECU a few times a
-second, and puts the four numbers I actually care about on screen in a size I can read from the
-passenger seat.
+Most cars have a dashboard that tells you almost nothing about the engine underneath it. This app
+plugs that gap. It talks to a cheap ELM327 Bluetooth adapter in the OBD2 port, polls the ECU a few
+times a second, and puts the numbers that matter on screen in a size you can read at a glance.
 
 It also records every drive. When a trip ends you get charts, a GPS route, and min/avg/max for every
-sensor the ECU was willing to talk about.
+sensor the ECU was willing to talk about — plus the trouble codes your dashboard warning lamp does
+not show you.
 
-**Boost is the reason this exists.** No ECU reports boost directly, so the app computes it as
-`MAP - barometric pressure`. Positive is boost, negative is vacuum off throttle. On a small turbo
-that single number tells you more than the rest of the dashboard combined.
+**Boost gets special treatment.** No ECU reports it directly, so the app computes it as
+`MAP - barometric pressure`. Positive is boost, negative is vacuum off throttle. On a turbocharged
+car that single number tells you more than the rest of the dashboard combined; on a naturally
+aspirated one the same dial rescales itself to show manifold vacuum instead.
+
+## Stack
+
+Native Android. No C, no Python, no cross-platform runtime — this is a Kotlin app compiled to an APK.
+
+| Layer | What it is |
+|---|---|
+| **Language** | Kotlin 2.2.10, JVM target 17 |
+| **UI** | Jetpack Compose (Material 3). Every gauge, chart and the route trace is hand-drawn on a Compose `Canvas` — no charting library, no Maps SDK |
+| **Async** | Kotlin coroutines and `StateFlow`. The poll loop is a coroutine; screens observe flows and own no connection state |
+| **Storage** | Room (SQLite) for trips and samples, DataStore for preferences and thresholds |
+| **Transport** | `BluetoothSocket` over RFCOMM/SPP, straight to the ELM327. No third-party OBD library — the AT handshake and every PID decoder are in this repo |
+| **Build** | Gradle 8.14 with AGP 8.11.1, KSP for Room. Single module |
+| **Testing** | JUnit 4 on the JVM, 56 tests, no device needed |
+| **Dependency injection** | A hand-written `AppGraph`. One module with one long-lived object, so a framework would cost build time and an annotation processor without buying anything back |
+
+Third-party runtime dependencies are AndroidX plus Play Services Location. That is the whole list.
+
+## What it works with
+
+Short answer: **any OBD2-compliant vehicle**, which in practice means almost anything sold after the
+mid-2000s. It is not magic, though, so here is the honest boundary.
+
+**Works**
+
+| | |
+|---|---|
+| **Vehicles** | Any car that implements OBD2 / EOBD / JOBD. Mandatory in the US from 1996, the EU from 2001 (petrol) and 2004 (diesel), and most other markets by around 2008 |
+| **Engines** | Petrol and diesel, naturally aspirated or forced induction. The app works out which from the data rather than from a setting |
+| **Hybrids** | The normal engine parameters work whenever the engine is running |
+| **Adapters** | ELM327 clones over Bluetooth Classic (SPP), v1.3 and up. The cheap ones are fine — there is a fallback for the malformed SDP records they often ship with |
+| **Phones** | Android 8.0 (API 26) and newer |
+
+**Does not work**
+
+| | |
+|---|---|
+| **BLE-only adapters** | This app speaks Bluetooth Classic SPP. Adapters advertising "Bluetooth 4.0 / BLE" use a completely different, and usually undocumented, protocol |
+| **Wi-Fi or USB adapters** | Same reason. Both are plausible additions behind the existing `ObdTransport` interface, but neither is written |
+| **Manufacturer-specific data** | Only the generic SAE parameters are decoded. Things like gearbox oil temperature or per-wheel tyre pressure usually live in a carmaker's own PID range and mean different things on different marques |
+| **EV traction batteries** | State of charge, cell voltages and pack temperature are all manufacturer-specific. A pure EV will connect and report very little |
+| **Pre-OBD2 cars** | No standard to speak to |
+| **iOS** | Bluetooth Classic SPP is not available to third-party iOS apps |
+
+The parts that genuinely adapt themselves, with no per-vehicle configuration anywhere in the repo,
+are [described below](#fitting-itself-to-whatever-is-plugged-in). What it cannot do is invent data an
+ECU does not publish: a car that answers twelve parameters gets twelve cards, not sixty.
 
 ## Highlights
 
@@ -48,7 +96,7 @@ that single number tells you more than the rest of the dashboard combined.
 | **Built to be glanced at, not read** | A push-start button for trip recording and a segmented shift light bar across the top of the screen. |
 | **Finds the faults your dash hides** | The warning lamp only ever reflects *confirmed* codes. Pending codes (Mode 07) and permanent codes (Mode 0A) light nothing and are not counted by PID 0101, so both are read unconditionally, alongside the readiness monitors that reveal a recent code clear. |
 | **Sends a trip as one file** | Export any finished trip as a self-contained HTML report: tables, vector charts and the route in a single attachment with **no images at all**, or as raw CSV for a spreadsheet. |
-| **Fits itself to the car** | The dial scale, the boost/vacuum split, the protocol and how much of the PID list fits in a cycle are all decided from what the car actually answers, not from a per-vehicle config. |
+| **Fits itself to the car** | The dial scale, the boost/vacuum split, the protocol and how much of the PID list fits in a cycle are all decided from what the car actually answers. |
 
 ## Screens
 
@@ -65,7 +113,7 @@ that single number tells you more than the rest of the dashboard combined.
   </tr>
   <tr>
     <td>Redline printed outside the track, a bloom on the lit arc, tapered pointer. Boost fills from zero, so vacuum reads one way and boost the other.</td>
-    <td>Every other PID the ECU answers, grouped, with a staleness dim on the slow tier.</td>
+    <td>Every other PID the ECU answers, grouped, with a staleness dim on the slow tier. Trouble codes and emissions self-tests sit above them.</td>
     <td>Pick a paired adapter, watch the handshake, see the achieved sample rate.</td>
   </tr>
   <tr>
@@ -80,8 +128,8 @@ that single number tells you more than the rest of the dashboard combined.
   </tr>
   <tr>
     <td>Every drive, kept indefinitely.</td>
-    <td>Scrubbable charts with the peak marked, plus min/avg/max for everything logged.</td>
-    <td>Defaults tuned for the KF-VET. Edit any bound, leave one blank to stop checking it.</td>
+    <td>Scrubbable charts with the peak marked, plus min/avg/max for everything logged. Exports from here.</td>
+    <td>Sensible defaults for a small petrol engine. Edit any bound, leave one blank to stop checking it.</td>
   </tr>
 </table>
 
@@ -179,9 +227,9 @@ the rotation for the rest of the session.
 
 ## Fitting itself to whatever is plugged in
 
-Two cars is enough to find the places where an app quietly assumes one of them. This one was written
-against a Daihatsu Move turbo and then plugged into a Nissan Dayz, which answers 35 parameters
-instead, and none of the differences that turned up needed a per-vehicle config entry:
+Plugging the same build into a second, very different car is what finds the places where an app has
+quietly assumed the first one. None of the differences below need a config entry, a vehicle profile,
+or a question at setup:
 
 | What differs | How it is handled |
 |---|---|
@@ -191,6 +239,7 @@ instead, and none of the differences that turned up needed a per-vehicle config 
 | **How fast the ECU answers** | The slow-tier read count per cycle is fitted to a measured round-trip cost, so a quick link refreshes the long tail several times faster and a slow one still keeps the gauges at rate. |
 | **Which protocol it speaks** | `ATSP0` first. If its auto-search gives up, the adapter is told explicitly which protocol to try, CAN first and the K-line ones after, rather than reporting the car as unreachable. |
 | **Petrol or diesel** | Bit 3 of PID 0101 byte B selects which set of readiness monitors the remaining bits mean, so a diesel gets NOx, PM filter and boost pressure rather than catalyst and secondary air. |
+| **One bank or two** | Bank 2 fuel trims and oxygen sensors are only shown if the ECU answers for them, so an inline three or four does not get a column of dashes. |
 | **Naming the protocol** | `ATDPN` answers with a single digit that maps to a known name. `ATDP` is prose and nicer to read, but several adapters answer it with a bare `AUTO,` when the search has only partly completed, which is useless on a trip report. |
 
 ## Faults the dashboard never shows you
@@ -216,11 +265,13 @@ most worth catching early were the two that were never read. All three modes are
 rotation, one per tick, so a scan is never three round trips inside a single poll cycle.
 
 A full row of incomplete monitors is worth knowing about on its own: it is the fingerprint of a
-recent code clear or a battery disconnect. The Nissan reported *warm-ups since codes cleared* pegged
-at its 255 ceiling and 4,269 km since the clear, which says the same thing from the other direction.
+recent code clear or a battery disconnect, and it means those systems are currently unassessed rather
+than healthy. The odometer-style counters say the same thing from the other direction — *warm-ups
+since codes cleared* pegged at its 255 ceiling, next to a large *distance since codes cleared*, dates
+roughly when someone last wiped the memory.
 
 Generic SAE codes are named from a table. Manufacturer-specific ones are not guessed at, because
-`P1234` means something different on a Daihatsu than it does on a Nissan and a confidently wrong
+`P1234` means one thing on one marque and something unrelated on another, and a confidently wrong
 definition is worse than an honest "look this one up".
 
 ## Sharing a trip
@@ -243,44 +294,94 @@ stopped at lights are dropped from the polyline instead of being written out hun
 
 Settings → Demo mode, or pick **Demo mode** on the Adapter screen.
 
-`SimulatedObdTransport` impersonates an ELM327 sitting in front of a 660cc turbo running a repeating
-two-minute cycle: idle, pull away, cruise, an overtake, then back to a stop. Throttle, boost, MAF,
-coolant warm-up and ignition timing are all derived from one speed curve, so the readings stay
-physically consistent with each other rather than being independently faked.
+`SimulatedObdTransport` impersonates an ELM327 sitting in front of a small turbocharged engine
+running a repeating two-minute cycle: idle, pull away, cruise, an overtake, then back to a stop.
+Throttle, boost, MAF, coolant warm-up and ignition timing are all derived from one speed curve, so
+the readings stay physically consistent with each other rather than being independently faked. It can
+also be handed pending codes, permanent codes and incomplete monitors to exercise the diagnostics
+screen.
 
 It sits at the transport seam, which means **everything above it is the production code path**:
-handshake, PID scan, polling, boost maths, alerts, trip recording, charts. A trip logged in demo mode
-is indistinguishable from a real one apart from the GPS track.
+handshake, PID scan, polling, boost maths, alerts, trip recording, charts, export. A trip logged in
+demo mode is indistinguishable from a real one apart from the GPS track.
 
-## Getting started
+## Building it yourself
+
+There is no Play Store listing, so you build the APK from source. It is one Gradle command, but you
+need a JDK and the Android SDK first.
+
+### The easy way: Android Studio
+
+1. Install [Android Studio](https://developer.android.com/studio). It brings its own JDK and SDK, so
+   there is nothing else to set up.
+2. **File → New → Project from Version Control**, and paste
+   `https://github.com/M0hid-ai/obd2-dash.git`.
+3. Let it sync, then **Build → Build App Bundle(s) / APK(s) → Build APK(s)**.
+4. The APK lands in `app/build/outputs/apk/debug/app-debug.apk`.
+
+With a phone plugged in and USB debugging on, ▶️ Run installs and launches it directly, which is
+easier than moving files around.
+
+### The command line way
+
+You need a **JDK 17 or 21** and the Android SDK with platform 36 and build-tools 36.
 
 ```bash
 git clone https://github.com/M0hid-ai/obd2-dash.git
 cd obd2-dash
-./gradlew installDebug
+
+# Point Gradle at your SDK, if it is not already on ANDROID_HOME
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties
+
+./gradlew assembleDebug
 ```
 
-Then pair your ELM327 in Android's Bluetooth settings first (the usual PIN is `1234` or `0000`) and
-pick it on the Adapter screen.
+The APK is at `app/build/outputs/apk/debug/app-debug.apk`, around 19 MB. Copy it to the phone and
+open it; Android will ask you to allow installs from whatever app you copied it with. Or, with USB
+debugging enabled:
 
 ```bash
-./gradlew testDebugUnitTest   # 56 JVM tests, no device needed
-./gradlew assembleDebug       # APK only
+./gradlew installDebug     # build and install over USB in one step
+./gradlew testDebugUnitTest  # 56 JVM tests, no device needed
 ```
+
+The debug build installs alongside a release one — it uses the application ID suffix `.debug` — so
+you can keep both.
+
+### Then, in the app
+
+1. Plug the ELM327 into the OBD2 port. It is usually under the steering column, sometimes behind a
+   small cover.
+2. Pair it in Android's own Bluetooth settings first. The usual PIN is `1234` or `0000`.
+3. Turn the ignition on. The adapter has power whenever the car is plugged in, but the ECU only
+   answers with the ignition live.
+4. Open the app, go to the **Adapter** screen, pick your adapter and connect. The PID scan runs
+   automatically and the dashboard fills in.
+
+Grant Bluetooth when asked. Location is only needed for trip distance and the route map — decline it
+and everything else still works, you just get no GPS track.
 
 <details>
 <summary><b>If Gradle complains about your JDK</b></summary>
 
 <br>
 
-Gradle 8.14 and AGP 8.11.1 do not accept JDK 24 or newer. Android Studio's bundled runtime works
-fine, so point `JAVA_HOME` at it:
+Gradle 8.14 and AGP 8.11.1 do not run on JDK 24 or newer. On a very new JDK the Kotlin compiler fails
+early with an unhelpful `java.lang.IllegalArgumentException` naming your Java version. Android
+Studio's bundled runtime is a JDK 21 and works fine, so point Gradle at it:
 
 ```bash
-JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleDebug
+JAVA_HOME="/path/to/Android Studio/jbr" ./gradlew assembleDebug
 ```
 
-Building from inside Android Studio needs no setup, it picks that JDK up on its own.
+Or set it permanently for this machine, without touching the repo, in `~/.gradle/gradle.properties`:
+
+```properties
+org.gradle.java.home=/path/to/Android Studio/jbr
+```
+
+On Windows that path is usually `C:/Program Files/Android/Android Studio/jbr`, with forward slashes.
+Building from inside Android Studio needs none of this — it picks its own JDK up automatically.
 
 </details>
 
@@ -363,6 +464,9 @@ That keeps a half hour trip at roughly 5,000 rows instead of 100,000, and means 
 never needs a schema migration. Trip summaries are kept indefinitely; the raw samples are the bulk of
 the database and have a retention hook waiting for a policy.
 
+Schema changes that do need a migration get a written one rather than a destructive fallback. Trip
+history cannot be re-collected once the drive is over.
+
 </details>
 
 <details>
@@ -393,7 +497,7 @@ Swap `RouteTrace` for a Maps composable if you ever want the real thing undernea
 <br>
 
 A short two-tone dash bell, generated as a WAV rather than pulled from a sample library, so there is
-no third party licence to track in a repo I want to keep MIT. The generator lives in the commit
+no third party licence to track in a repo meant to stay MIT. The generator lives in the commit
 history if you want to retune it; the output sits in `res/raw`.
 
 Deliberately not text to speech. Speech is slow to parse and easy to talk over.
@@ -436,21 +540,25 @@ The UI has no instrumented tests. It was verified by running it.
 - [ ] Firestore batch upload after each trip
 - [ ] Web dashboard reading from Firestore
 - [ ] Retention policy for raw reading rows
+- [ ] A BLE transport, for the adapters this cannot currently talk to
 
 Firestore sync is scaffolded but not wired up: it needs a `google-services.json` that is specific to
 your Firebase project. `TripEntity.syncedAt` and `TripDao.pendingUpload()` are already there for it.
 
-## Hardware
+## Requirements
 
 | | |
 |---|---|
-| Adapter | ELM327 Mini, Bluetooth Classic (SPP, not BLE) |
-| Vehicle | Daihatsu Move 2023, turbo (KF-VET, 660cc, CVT) |
-| Protocol | ISO 15765-4 CAN 11 bit / 500 kbaud, auto detected |
+| Adapter | ELM327, Bluetooth Classic (SPP, **not** BLE) |
+| Vehicle | Any OBD2 / EOBD / JOBD compliant car |
+| Protocol | All nine ELM327 protocols; ISO 15765-4 CAN is auto detected on most modern cars |
 | Phone | Android 8.0 or newer |
+| To build | JDK 17 or 21, Android SDK platform 36 |
 
-The [PID reference](docs/PID-REFERENCE.md) lists what the app decodes and what this car actually
-reports.
+Development and on-road testing were done with an ELM327 Mini against two different small petrol
+engines, one turbocharged and one naturally aspirated, both on ISO 15765-4 CAN 11 bit / 500 kbaud.
+
+The [PID reference](docs/PID-REFERENCE.md) lists everything the app can decode.
 
 ## License
 
