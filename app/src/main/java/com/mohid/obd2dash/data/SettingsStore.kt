@@ -117,6 +117,9 @@ enum class GaugeAccent(val label: String, val color: Color) {
     LIME("Lime", Color(0xFFA6E22E)),
 }
 
+/** Fast and cheap enough to analyse a trip without thinking about it. */
+const val DEFAULT_AI_MODEL = "gemini-2.5-flash"
+
 data class AppSettings(
     val pollIntervalMs: Int = 300,
     val useFrameCountHint: Boolean = true,
@@ -127,6 +130,9 @@ data class AppSettings(
     val alertSoundEnabled: Boolean = true,
     val pressureUnit: PressureUnit = PressureUnit.BAR,
     val fuelUnit: FuelUnit = FuelUnit.KM_PER_LITRE,
+    /** Gemini API key, supplied by whoever owns the account. Empty disables analysis. */
+    val aiApiKey: String = "",
+    val aiModel: String = DEFAULT_AI_MODEL,
     val gaugeSkin: GaugeSkin = GaugeSkin.SHOWCASE,
     val gaugeAccent: GaugeAccent = GaugeAccent.GREEN,
     val thresholds: List<ThresholdRule> = DefaultThresholds.rules,
@@ -146,6 +152,8 @@ class SettingsStore(private val context: Context) {
         val alertSound = booleanPreferencesKey("alertSound")
         val pressureUnit = stringPreferencesKey("pressureUnit")
         val fuelUnit = stringPreferencesKey("fuelUnit")
+        val aiApiKey = stringPreferencesKey("aiApiKey")
+        val aiModel = stringPreferencesKey("aiModel")
         val gaugeSkin = stringPreferencesKey("gaugeSkin")
         val gaugeAccent = stringPreferencesKey("gaugeAccent")
         val thresholds = stringSetPreferencesKey("thresholds")
@@ -168,6 +176,8 @@ class SettingsStore(private val context: Context) {
             fuelUnit = prefs[Keys.fuelUnit]
                 ?.let { name -> FuelUnit.entries.firstOrNull { it.name == name } }
                 ?: defaults.fuelUnit,
+            aiApiKey = prefs[Keys.aiApiKey].orEmpty(),
+            aiModel = prefs[Keys.aiModel]?.ifBlank { null } ?: defaults.aiModel,
             gaugeSkin = prefs[Keys.gaugeSkin]
                 ?.let { name -> GaugeSkin.entries.firstOrNull { it.name == name } }
                 ?: defaults.gaugeSkin,
@@ -218,6 +228,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setAlertSound(value: Boolean) = edit { it[Keys.alertSound] = value }
     suspend fun setPressureUnit(value: PressureUnit) = edit { it[Keys.pressureUnit] = value.name }
     suspend fun setFuelUnit(value: FuelUnit) = edit { it[Keys.fuelUnit] = value.name }
+
+    suspend fun setAiApiKey(value: String) = edit { it[Keys.aiApiKey] = value.trim() }
+
+    suspend fun setAiModel(value: String) = edit { it[Keys.aiModel] = value.trim() }
 
     suspend fun setGaugeSkin(value: GaugeSkin) = edit { it[Keys.gaugeSkin] = value.name }
     suspend fun setGaugeAccent(value: GaugeAccent) = edit { it[Keys.gaugeAccent] = value.name }

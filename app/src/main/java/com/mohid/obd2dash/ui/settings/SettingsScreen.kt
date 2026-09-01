@@ -59,6 +59,9 @@ import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.data.GaugeAccent
 import com.mohid.obd2dash.data.GaugeSkin
 import com.mohid.obd2dash.data.PressureUnit
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import com.mohid.obd2dash.data.DEFAULT_AI_MODEL
 import com.mohid.obd2dash.obd.FuelUnit
 import com.mohid.obd2dash.data.VehicleProfile
 import com.mohid.obd2dash.obd.metricByKey
@@ -238,6 +241,70 @@ fun SettingsScreen(graph: AppGraph) {
                             ) {
                                 Text(unit.label)
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            SectionLabel("AI analysis")
+        }
+        item {
+            Text(
+                "The trip report screen can send a drive to Google's Gemini API and ask an " +
+                    "engine specialist prompt what it makes of it. A summary is sent, not the raw " +
+                    "log, and the VIN is never included. Nothing leaves the phone until you press " +
+                    "the button on a trip.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        item {
+            SettingsCard {
+                Column(Modifier.padding(14.dp)) {
+                    var key by remember(settings.aiApiKey) { mutableStateOf(settings.aiApiKey) }
+                    var visible by remember { mutableStateOf(false) }
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = { key = it },
+                        label = { Text("Gemini API key") },
+                        placeholder = { Text("AIza…") },
+                        singleLine = true,
+                        visualTransformation = if (visible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            TextButton(onClick = { visible = !visible }) {
+                                Text(if (visible) "Hide" else "Show")
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    var model by remember(settings.aiModel) { mutableStateOf(settings.aiModel) }
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = { model = it },
+                        label = { Text("Model") },
+                        supportingText = { Text("Default is $DEFAULT_AI_MODEL.") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp),
+                    )
+                    if (key != settings.aiApiKey || model.trim() != settings.aiModel) {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    store.setAiApiKey(key)
+                                    store.setAiModel(model.ifBlank { DEFAULT_AI_MODEL })
+                                }
+                            },
+                        ) {
+                            Text("Save")
                         }
                     }
                 }

@@ -18,6 +18,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.AlertDialog
+import com.mohid.obd2dash.ai.TripAnalyst
+import com.mohid.obd2dash.ai.TripBriefing
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -99,6 +105,9 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
     val snackbarHost = remember { SnackbarHostState() }
     var shareMenuOpen by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
+    var analysing by remember { mutableStateOf(false) }
+    var analysis by remember(tripId) { mutableStateOf<String?>(null) }
+    var analysisError by remember(tripId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tripId) {
         metricKeys = graph.tripRepository.recordedMetrics(tripId)
@@ -122,6 +131,45 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = {
+                            analysing = true
+                            analysisError = null
+                            scope.launch {
+                                val data = graph.tripRepository.snapshotForExport(tripId)
+                                if (data == null) {
+                                    analysisError = "That trip has no data to analyse."
+                                } else {
+                                    val briefing = TripBriefing.build(data, settings.fuelUnit)
+                                    when (
+                                        val result = graph.tripAnalyst.analyse(
+                                            apiKey = settings.aiApiKey,
+                                            model = settings.aiModel,
+                                            briefing = briefing,
+                                        )
+                                    ) {
+                                        is TripAnalyst.Result.Success -> analysis = result.analysis
+                                        is TripAnalyst.Result.Failure -> analysisError = result.message
+                                    }
+                                }
+                                analysing = false
+                            }
+                        },
+                        enabled = !analysing && trip?.endedAt != null,
+                    ) {
+                        if (analysing) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                color = Cyan,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.AutoAwesome,
+                                contentDescription = "Analyse this trip with AI",
+                            )
+                        }
+                    }
                     Box {
                         IconButton(
                             onClick = { shareMenuOpen = true },
@@ -343,6 +391,49 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
             Spacer(Modifier.height(20.dp))
         }
     }
+
+    analysis?.let { text ->
+        AnalysisDialog(
+            title = trip?.title ?: "Trip #$tripId",
+            body = text,
+            onDismiss = { analysis = null },
+        )
+    }
+    analysisError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { analysisError = null },
+            title = { Text("Analysis failed") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { analysisError = null }) { Text("OK") }
+            },
+        )
+    }
+}
+
+/**
+ * The model's answer, shown as plain scrollable text.
+ *
+ * No markdown renderer: what comes back is short, structured prose with
+ * numbered headings, and pulling in a renderer to bold a few words is not worth
+ * the dependency or the attack surface on text from a remote service.
+ */
+@Composable
+private fun AnalysisDialog(title: String, body: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(body, style = MaterialTheme.typography.bodyMedium)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
 
 @Composable

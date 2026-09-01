@@ -2,6 +2,7 @@ package com.mohid.obd2dash
 
 import android.app.Application
 import android.content.Context
+import com.mohid.obd2dash.ai.TripAnalyst
 import com.mohid.obd2dash.alerts.AlertNotifier
 import com.mohid.obd2dash.data.SettingsStore
 import com.mohid.obd2dash.data.TripExporter
@@ -41,6 +42,8 @@ class AppGraph(context: Context) {
     val tripRepository: TripRepository by lazy { TripRepository(database) }
 
     val tripExporter: TripExporter by lazy { TripExporter(appContext, tripRepository) }
+
+    val tripAnalyst: TripAnalyst by lazy { TripAnalyst() }
 
     val controller: ObdController by lazy {
         ObdController(
