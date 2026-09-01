@@ -810,10 +810,16 @@ class ObdController(
     }
 
     private suspend fun beginTrip(manual: Boolean, adapter: AdapterInfo?, transportName: String?) {
+        val identity = activeVehicle?.identity
+        val profile = identity?.let { vehicleCache[it] }
         val id = recorder.start(
             startedManually = manual,
             adapterName = transportName,
             protocol = adapter?.protocol,
+            vehicleIdentity = identity,
+            // Snapshotted now, not resolved at read time: renaming a car later
+            // should not retitle drives already in the history.
+            vehicleName = profile?.takeIf { it.isNamed }?.displayName,
         )
         _trip.value = TripState.Recording(
             tripId = id,

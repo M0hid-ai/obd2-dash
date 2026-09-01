@@ -22,6 +22,16 @@ data class TripEntity(
     val startedManually: Boolean = false,
     val adapterName: String? = null,
     val protocol: String? = null,
+    /** VIN, or the ECU fingerprint when Mode 09 was silent. */
+    val vehicleIdentity: String? = null,
+    /**
+     * The car's name as it read when the trip started, copied rather than
+     * looked up later. Renaming a car should not silently retitle drives that
+     * are already in the history.
+     */
+    val vehicleName: String? = null,
+    /** Nth trip for this particular car, counted from one. */
+    val vehicleTripNumber: Int = 0,
     val milOn: Boolean = false,
     val dtcCount: Int = 0,
     /**
@@ -50,6 +60,20 @@ data class TripEntity(
     /** Null until the post-trip batch upload succeeds. */
     val syncedAt: Long? = null,
 )
+
+/**
+ * What to call a trip.
+ *
+ * "Daihatsu Move 2023 - Trip 12" once the car has a name, falling back to the
+ * bare trip number for drives recorded before the car was identified, or on an
+ * adapter that never produced a VIN.
+ */
+val TripEntity.title: String
+    get() = when {
+        vehicleName != null && vehicleTripNumber > 0 -> "$vehicleName - Trip $vehicleTripNumber"
+        vehicleName != null -> vehicleName
+        else -> "Trip #$id"
+    }
 
 /**
  * One polling tick.

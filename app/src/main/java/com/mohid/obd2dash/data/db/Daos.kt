@@ -39,6 +39,14 @@ interface TripDao {
     @Query("DELETE FROM trips WHERE id = :tripId")
     suspend fun delete(tripId: Long)
 
+    /**
+     * Highest trip number already handed out for this car. Read rather than
+     * counted so deleting trip 3 of 5 does not make the next drive a second
+     * trip 5.
+     */
+    @Query("SELECT MAX(vehicleTripNumber) FROM trips WHERE vehicleIdentity = :identity")
+    suspend fun lastTripNumber(identity: String): Int?
+
     @Query("SELECT COUNT(*) FROM trips")
     fun observeTripCount(): Flow<Int>
 

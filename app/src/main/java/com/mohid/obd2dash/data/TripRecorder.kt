@@ -122,17 +122,27 @@ class TripRecorder(private val db: AppDatabase) {
         startedManually: Boolean,
         adapterName: String?,
         protocol: String?,
+        vehicleIdentity: String? = null,
+        vehicleName: String? = null,
         now: Long = System.currentTimeMillis(),
     ): Long {
         reset()
         startedAt = now
         lastFlushAt = now
+        // Numbered per car rather than globally, so "Move 2023 trip 12" means
+        // the twelfth drive in that car and not the twelfth the phone has seen.
+        val number = vehicleIdentity
+            ?.let { (db.tripDao().lastTripNumber(it) ?: 0) + 1 }
+            ?: 0
         val id = db.tripDao().insert(
             TripEntity(
                 startedAt = now,
                 startedManually = startedManually,
                 adapterName = adapterName,
                 protocol = protocol,
+                vehicleIdentity = vehicleIdentity,
+                vehicleName = vehicleName,
+                vehicleTripNumber = number,
             ),
         )
         tripId = id

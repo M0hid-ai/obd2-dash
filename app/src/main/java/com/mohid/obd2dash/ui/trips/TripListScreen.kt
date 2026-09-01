@@ -121,12 +121,16 @@ private fun TripRow(trip: TripEntity, onClick: () -> Unit, onDelete: () -> Unit)
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        dayFormat.format(started),
+                        trip.vehicleName ?: dayFormat.format(started),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "  ${timeFormat.format(started)}",
+                        if (trip.vehicleName != null && trip.vehicleTripNumber > 0) {
+                            "  trip ${trip.vehicleTripNumber}"
+                        } else {
+                            "  ${timeFormat.format(started)}"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextMuted,
                     )
@@ -143,6 +147,12 @@ private fun TripRow(trip: TripEntity, onClick: () -> Unit, onDelete: () -> Unit)
                 }
                 Text(
                     buildString {
+                        if (trip.vehicleName != null) {
+                            append(dayFormat.format(started))
+                            append(" ")
+                            append(timeFormat.format(started))
+                            append(" · ")
+                        }
                         append("%.2f km".format(trip.distanceMeters / 1000))
                         append(" · ")
                         append(if (ongoing) "recording" else formatElapsed(trip.durationMs))

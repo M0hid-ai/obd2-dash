@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.sp
 import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.data.ExportFormat
+import com.mohid.obd2dash.data.db.title
 import com.mohid.obd2dash.data.SeriesPoint
 import com.mohid.obd2dash.data.db.TripMetricEntity
 import com.mohid.obd2dash.obd.metricByKey
@@ -108,7 +109,7 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Trip #$tripId") },
+                title = { Text(trip?.title ?: "Trip #$tripId") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
