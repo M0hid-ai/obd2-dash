@@ -43,6 +43,7 @@ import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.obd.ConnectionState
 import com.mohid.obd2dash.obd.DerivedMetrics
 import com.mohid.obd2dash.obd.FuelEconomy
+import com.mohid.obd2dash.obd.FuelUnit
 import com.mohid.obd2dash.obd.FuelSource
 import com.mohid.obd2dash.obd.Induction
 import com.mohid.obd2dash.obd.MetricSnapshot
@@ -160,6 +161,7 @@ fun DashboardScreen(
             TripControls(
                 trip = trip,
                 connected = connection is ConnectionState.Connected,
+                fuelUnit = settings.fuelUnit,
                 onStart = { graph.controller.startTrip() },
                 onStop = { graph.controller.stopTrip() },
             )
@@ -358,6 +360,7 @@ private fun ConnectionHeader(
 private fun TripControls(
     trip: TripState,
     connected: Boolean,
+    fuelUnit: FuelUnit,
     onStart: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -405,7 +408,7 @@ private fun TripControls(
                         StatTile("Distance", "%.2f km".format(trip.distanceMeters / 1000))
                         StatTile("Samples", trip.sampleCount.toString())
                     }
-                    if (trip.instantLPer100 != null || trip.tripLPer100 != null || trip.fuelLitres > 0.0) {
+                    if (trip.tripLPer100 != null || trip.fuelLitres > 0.0) {
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -413,12 +416,8 @@ private fun TripControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             StatTile(
-                                "Instant",
-                                trip.instantLPer100?.let { FuelEconomy.formatLPer100(it) } ?: "—",
-                            )
-                            StatTile(
                                 "Average",
-                                trip.tripLPer100?.let { FuelEconomy.formatLPer100(it) } ?: "—",
+                                trip.tripLPer100?.let { FuelEconomy.format(it, fuelUnit) } ?: "—",
                             )
                             StatTile(
                                 "Used",

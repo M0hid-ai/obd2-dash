@@ -54,7 +54,6 @@ sealed interface TripState {
         val startedManually: Boolean,
         val fuelLitres: Double = 0.0,
         val tripLPer100: Float? = null,
-        val instantLPer100: Float? = null,
         val fuelSource: FuelSource? = null,
     ) : TripState
 }
@@ -909,7 +908,6 @@ class ObdController(
             sampleCount = recorder.currentSampleCount,
             fuelLitres = recorder.currentFuelLitres,
             tripLPer100 = recorder.currentTripEconomy,
-            instantLPer100 = _snapshot.value[DerivedMetrics.FUEL_ECONOMY.key],
             fuelSource = recorder.currentFuelSource,
         )
     }
