@@ -586,7 +586,9 @@ private fun SkinRow(skin: GaugeSkin, selected: Boolean, onSelect: () -> Unit) {
                 )
                 Text(skin.blurb, style = MaterialTheme.typography.bodySmall, color = TextMuted)
             }
-            if (skin != GaugeSkin.SHOWCASE) {
+            // Compare all and Per dial both describe how to pick a face rather
+            // than being one, so neither has a preview to show.
+            if (skin != GaugeSkin.SHOWCASE && skin != GaugeSkin.CUSTOM) {
                 MetricGauge(
                     label = "RPM",
                     value = PREVIEW_RPM,
@@ -798,10 +800,15 @@ private fun VehicleRow(
     onForget: () -> Unit,
 ) {
     Column(Modifier.padding(14.dp)) {
-        Text(
-            vehicle.displayName,
-            style = MaterialTheme.typography.titleMedium,
-        )
+        // Only worth a heading of its own once there is a name to put there.
+        // Without one displayName falls back to the VIN, which is already the
+        // line underneath.
+        if (vehicle.isNamed) {
+            Text(
+                vehicle.displayName,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
         Text(
             vehicle.vin ?: vehicle.identity,
             style = MaterialTheme.typography.bodySmall,
