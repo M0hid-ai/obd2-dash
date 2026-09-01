@@ -31,6 +31,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mohid.obd2dash.AppGraph
+import com.mohid.obd2dash.data.AppSettings
+import com.mohid.obd2dash.obd.FuelEconomy
+import com.mohid.obd2dash.obd.FuelUnit
 import com.mohid.obd2dash.data.db.TripEntity
 import com.mohid.obd2dash.ui.components.StatTile
 import com.mohid.obd2dash.ui.components.formatElapsed
@@ -50,6 +53,7 @@ private val timeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 @Composable
 fun TripListScreen(graph: AppGraph, onOpenTrip: (Long) -> Unit) {
     val trips by graph.tripRepository.observeTrips().collectAsStateWithLifecycle(emptyList())
+    val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
     val totalDistance by graph.tripRepository.observeTotalDistance().collectAsStateWithLifecycle(0.0)
     val scope = rememberCoroutineScope()
 
@@ -97,6 +101,7 @@ fun TripListScreen(graph: AppGraph, onOpenTrip: (Long) -> Unit) {
 
         items(trips, key = { it.id }) { trip ->
             TripRow(
+                fuelUnit = settings.fuelUnit,
                 trip = trip,
                 onClick = { onOpenTrip(trip.id) },
                 onDelete = { scope.launch { graph.tripRepository.delete(trip.id) } },
@@ -106,7 +111,12 @@ fun TripListScreen(graph: AppGraph, onOpenTrip: (Long) -> Unit) {
 }
 
 @Composable
-private fun TripRow(trip: TripEntity, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun TripRow(
+    fuelUnit: FuelUnit,
+    trip: TripEntity,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val started = Instant.ofEpochMilli(trip.startedAt).atZone(ZoneId.systemDefault())
     val ongoing = trip.endedAt == null
 
@@ -158,7 +168,7 @@ private fun TripRow(trip: TripEntity, onClick: () -> Unit, onDelete: () -> Unit)
                         append(if (ongoing) "recording" else formatElapsed(trip.durationMs))
                         trip.fuelEconomyLPer100?.let {
                             append(" · ")
-                            append("%.1f L/100 km".format(it))
+                            append(FuelEconomy.format(it, fuelUnit))
                         }
                         append(" · ")
                         append("${trip.sampleCount} samples")

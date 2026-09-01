@@ -50,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.sp
 import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.data.ExportFormat
+import com.mohid.obd2dash.data.AppSettings
+import com.mohid.obd2dash.obd.FuelEconomy
 import com.mohid.obd2dash.data.db.TripEntity
 import com.mohid.obd2dash.data.db.title
 import com.mohid.obd2dash.obd.metricByKey
@@ -85,6 +87,7 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
     val trip by graph.tripRepository.observeTrip(tripId).collectAsStateWithLifecycle(null)
     val summaries by graph.tripRepository.observeMetrics(tripId).collectAsStateWithLifecycle(emptyList())
     val dtcs by graph.tripRepository.observeDtcs(tripId).collectAsStateWithLifecycle(emptyList())
+    val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
 
     var metricKeys by remember(tripId) { mutableStateOf<List<String>>(emptyList()) }
     var selectedMetric by remember(tripId) { mutableStateOf<String?>(null) }
@@ -224,7 +227,7 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
                                     .padding(top = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                StatTile("Fuel avg", "%.1f L/100 km".format(econ))
+                                StatTile("Fuel avg", FuelEconomy.format(econ, settings.fuelUnit))
                                 StatTile(
                                     "Used",
                                     entity.fuelLitres?.let { "%.2f L".format(it) } ?: "—",

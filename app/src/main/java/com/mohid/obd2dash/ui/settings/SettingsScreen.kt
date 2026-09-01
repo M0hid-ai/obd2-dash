@@ -59,6 +59,7 @@ import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.data.GaugeAccent
 import com.mohid.obd2dash.data.GaugeSkin
 import com.mohid.obd2dash.data.PressureUnit
+import com.mohid.obd2dash.obd.FuelUnit
 import com.mohid.obd2dash.data.VehicleProfile
 import com.mohid.obd2dash.obd.metricByKey
 import com.mohid.obd2dash.ui.components.GaugeZone
@@ -209,6 +210,31 @@ fun SettingsScreen(graph: AppGraph) {
                                 selected = settings.pressureUnit == unit,
                                 onClick = { scope.launch { store.setPressureUnit(unit) } },
                                 shape = SegmentedButtonDefaults.itemShape(index, PressureUnit.entries.size),
+                            ) {
+                                Text(unit.label)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            SettingsCard {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Fuel average", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "The same measurement either way round: higher is better in km/L, " +
+                            "lower is better in L/100 km.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                    )
+                    SingleChoiceSegmentedButtonRow(Modifier.padding(top = 10.dp)) {
+                        FuelUnit.entries.forEachIndexed { index, unit ->
+                            SegmentedButton(
+                                selected = settings.fuelUnit == unit,
+                                onClick = { scope.launch { store.setFuelUnit(unit) } },
+                                shape = SegmentedButtonDefaults.itemShape(index, FuelUnit.entries.size),
                             ) {
                                 Text(unit.label)
                             }

@@ -213,6 +213,16 @@ class ObdController(
 
     /** Everything the support bitmask claimed, decodable by this app or not. */
     private var advertisedPidCount = 0
+
+    /**
+     * Where this car's throttle sensor sits when the pedal is untouched.
+     *
+     * Learned rather than assumed, because "closed" is not zero on most cars:
+     * plenty report 12 to 15 percent with the pedal up. The lowest value seen
+     * since connecting is the resting position by definition, since nothing
+     * can push a throttle below closed.
+     */
+    private var closedThrottlePct: Float? = null
     private var activeVehicle: VehicleIdentity.Info? = null
 
     init {
@@ -251,6 +261,8 @@ class ObdController(
             _vehiclePrompt.value = null
             setTurbo(false)
             activeVehicle = null
+            // Learned per car, so it must not survive into the next one.
+            closedThrottlePct = null
         }
     }
 
@@ -495,6 +507,9 @@ class ObdController(
                     }
                 }
 
+                values[PidRegistry.THROTTLE.key]?.let { throttle ->
+                    closedThrottlePct = minOf(closedThrottlePct ?: throttle, throttle)
+                }
                 applyDerivedMetrics(values, updatedAt, now, turbo)
                 if (turbo) detectInduction(values)
 
@@ -598,6 +613,8 @@ class ObdController(
             _vehiclePrompt.value = null
             setTurbo(false)
             activeVehicle = null
+            // Learned per car, so it must not survive into the next one.
+            closedThrottlePct = null
         }
     }
 
@@ -709,7 +726,28 @@ class ObdController(
         val ecuRate = values["fuelRate"]
         if (ecuRate == null) {
             values[PidRegistry.MAF.key]?.let { maf ->
-                val estimated = FuelEconomy.litresPerHourFromMaf(maf, diesel)
+                // Overrun first: on a closed throttle above idle the injectors
+                // are shut and the air still moving through the MAF carries no
+                // fuel at all, so no mixture correction applies to it.
+                val estimated = if (
+                    FuelEconomy.isFuelCut(
+                        rpm = values[PidRegistry.RPM.key],
+                        speedKph = values[PidRegistry.SPEED.key],
+                        throttlePct = values[PidRegistry.THROTTLE.key],
+                        closedThrottlePct = closedThrottlePct,
+                        loadPct = values[PidRegistry.ENGINE_LOAD.key],
+                    )
+                ) {
+                    0f
+                } else {
+                    FuelEconomy.litresPerHourFromMaf(
+                        mafGramsPerSec = maf,
+                        diesel = diesel,
+                        lambda = values["equivRatio"],
+                        shortTrimPct = values["stft1"],
+                        longTrimPct = values["ltft1"],
+                    )
+                }
                 values[DerivedMetrics.FUEL_RATE_MAF.key] = estimated
                 updatedAt[DerivedMetrics.FUEL_RATE_MAF.key] = now
             }

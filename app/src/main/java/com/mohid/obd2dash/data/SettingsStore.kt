@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.mohid.obd2dash.alerts.DefaultThresholds
 import com.mohid.obd2dash.alerts.ThresholdRule
+import com.mohid.obd2dash.obd.FuelUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -125,6 +126,7 @@ data class AppSettings(
     val liveMode: Boolean = false,
     val alertSoundEnabled: Boolean = true,
     val pressureUnit: PressureUnit = PressureUnit.BAR,
+    val fuelUnit: FuelUnit = FuelUnit.KM_PER_LITRE,
     val gaugeSkin: GaugeSkin = GaugeSkin.SHOWCASE,
     val gaugeAccent: GaugeAccent = GaugeAccent.GREEN,
     val thresholds: List<ThresholdRule> = DefaultThresholds.rules,
@@ -143,6 +145,7 @@ class SettingsStore(private val context: Context) {
         val liveMode = booleanPreferencesKey("liveMode")
         val alertSound = booleanPreferencesKey("alertSound")
         val pressureUnit = stringPreferencesKey("pressureUnit")
+        val fuelUnit = stringPreferencesKey("fuelUnit")
         val gaugeSkin = stringPreferencesKey("gaugeSkin")
         val gaugeAccent = stringPreferencesKey("gaugeAccent")
         val thresholds = stringSetPreferencesKey("thresholds")
@@ -162,6 +165,9 @@ class SettingsStore(private val context: Context) {
             pressureUnit = prefs[Keys.pressureUnit]
                 ?.let { name -> PressureUnit.entries.firstOrNull { it.name == name } }
                 ?: defaults.pressureUnit,
+            fuelUnit = prefs[Keys.fuelUnit]
+                ?.let { name -> FuelUnit.entries.firstOrNull { it.name == name } }
+                ?: defaults.fuelUnit,
             gaugeSkin = prefs[Keys.gaugeSkin]
                 ?.let { name -> GaugeSkin.entries.firstOrNull { it.name == name } }
                 ?: defaults.gaugeSkin,
@@ -211,6 +217,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setLiveMode(value: Boolean) = edit { it[Keys.liveMode] = value }
     suspend fun setAlertSound(value: Boolean) = edit { it[Keys.alertSound] = value }
     suspend fun setPressureUnit(value: PressureUnit) = edit { it[Keys.pressureUnit] = value.name }
+    suspend fun setFuelUnit(value: FuelUnit) = edit { it[Keys.fuelUnit] = value.name }
+
     suspend fun setGaugeSkin(value: GaugeSkin) = edit { it[Keys.gaugeSkin] = value.name }
     suspend fun setGaugeAccent(value: GaugeAccent) = edit { it[Keys.gaugeAccent] = value.name }
 
