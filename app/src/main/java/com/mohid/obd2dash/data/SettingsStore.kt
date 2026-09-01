@@ -78,6 +78,10 @@ enum class GaugeSkin(val label: String, val blurb: String) {
         "Circuit",
         "A segmented shift bar bent into an arc, with a peak hold marker, after GT-R and race car displays.",
     ),
+    CUSTOM(
+        "Per dial",
+        "Choose a face for each of the four dials yourself.",
+    ),
     ;
 
     /**
@@ -89,14 +93,23 @@ enum class GaugeSkin(val label: String, val blurb: String) {
         else -> showcaseOrder[position % showcaseOrder.size]
     }
 
-    private companion object {
+    companion object {
+        /**
+         * The faces a single dial can actually be set to.
+         *
+         * Compare all and Per dial are both instructions about how to pick a
+         * face rather than faces themselves, so neither can be the answer to
+         * "what should dial two draw".
+         */
+        val selectable: List<GaugeSkin> = entries.filter { it != SHOWCASE && it != CUSTOM }
+
         /**
          * Deliberately paired to the metric each face suits: the aggressive one
          * on the tachometer, the traditional dial on road speed, the calm
          * minimal one on coolant, and the segmented bar with peak hold on boost,
          * where the spike is over before you can look down at it.
          */
-        val showcaseOrder = listOf(HEXA, HERITAGE, COCKPIT, CIRCUIT)
+        private val showcaseOrder = listOf(HEXA, HERITAGE, COCKPIT, CIRCUIT)
     }
 }
 
@@ -134,11 +147,38 @@ data class AppSettings(
     val aiApiKey: String = "",
     val aiModel: String = DEFAULT_AI_MODEL,
     val gaugeSkin: GaugeSkin = GaugeSkin.SHOWCASE,
+    /**
+     * One face per dial, used only when [gaugeSkin] is CUSTOM. Always four
+     * entries, in dashboard order: RPM, speed, coolant, boost or load.
+     */
+    val perDialSkins: List<GaugeSkin> = DEFAULT_PER_DIAL,
     val gaugeAccent: GaugeAccent = GaugeAccent.GREEN,
     val thresholds: List<ThresholdRule> = DefaultThresholds.rules,
 ) {
     fun thresholdFor(metricKey: String): ThresholdRule? = thresholds.firstOrNull { it.metricKey == metricKey }
+
+    /** The face dial [position] should draw, whichever way the choice was made. */
+    fun skinFor(position: Int): GaugeSkin =
+        if (gaugeSkin == GaugeSkin.CUSTOM) {
+            perDialSkins.getOrNull(position) ?: GaugeSkin.CLASSIC
+        } else {
+            gaugeSkin.resolve(position)
+        }
 }
+
+/** Labels for the four dials, in the order they sit on the dashboard. */
+val DIAL_LABELS = listOf("Tachometer", "Road speed", "Coolant", "Boost or load")
+
+/**
+ * Seeded from Compare all rather than four copies of one face, so switching to
+ * Per dial starts from something already worth looking at.
+ */
+val DEFAULT_PER_DIAL = listOf(
+    GaugeSkin.HEXA,
+    GaugeSkin.HERITAGE,
+    GaugeSkin.COCKPIT,
+    GaugeSkin.CIRCUIT,
+)
 
 class SettingsStore(private val context: Context) {
 
@@ -155,6 +195,7 @@ class SettingsStore(private val context: Context) {
         val aiApiKey = stringPreferencesKey("aiApiKey")
         val aiModel = stringPreferencesKey("aiModel")
         val gaugeSkin = stringPreferencesKey("gaugeSkin")
+        val perDialSkins = stringPreferencesKey("perDialSkins")
         val gaugeAccent = stringPreferencesKey("gaugeAccent")
         val thresholds = stringSetPreferencesKey("thresholds")
         val vehicles = stringSetPreferencesKey("vehicles")
@@ -181,6 +222,7 @@ class SettingsStore(private val context: Context) {
             gaugeSkin = prefs[Keys.gaugeSkin]
                 ?.let { name -> GaugeSkin.entries.firstOrNull { it.name == name } }
                 ?: defaults.gaugeSkin,
+            perDialSkins = decodePerDial(prefs[Keys.perDialSkins]),
             gaugeAccent = prefs[Keys.gaugeAccent]
                 ?.let { name -> GaugeAccent.entries.firstOrNull { it.name == name } }
                 ?: defaults.gaugeAccent,
@@ -212,6 +254,21 @@ class SettingsStore(private val context: Context) {
      * the shipped default, so adding a new default rule in an update reaches
      * existing installs instead of being masked by an old saved set.
      */
+    /**
+     * Falls back per position rather than wholesale: a stored list that lost an
+     * entry, or names a face that has since been removed, should keep the three
+     * dials that are still valid.
+     */
+    private fun decodePerDial(raw: String?): List<GaugeSkin> {
+        if (raw.isNullOrBlank()) return DEFAULT_PER_DIAL
+        val parts = raw.split(';')
+        return DEFAULT_PER_DIAL.mapIndexed { index, fallback ->
+            parts.getOrNull(index)
+                ?.let { name -> GaugeSkin.selectable.firstOrNull { it.name == name } }
+                ?: fallback
+        }
+    }
+
     private fun mergeThresholds(stored: Set<String>?): List<ThresholdRule> {
         if (stored.isNullOrEmpty()) return DefaultThresholds.rules
         val overrides = stored.mapNotNull(ThresholdRule::deserialize).associateBy { it.metricKey }
@@ -234,6 +291,14 @@ class SettingsStore(private val context: Context) {
     suspend fun setAiModel(value: String) = edit { it[Keys.aiModel] = value.trim() }
 
     suspend fun setGaugeSkin(value: GaugeSkin) = edit { it[Keys.gaugeSkin] = value.name }
+
+    /** Sets one dial's face without disturbing the other three. */
+    suspend fun setDialSkin(position: Int, value: GaugeSkin) = edit { prefs ->
+        val current = decodePerDial(prefs[Keys.perDialSkins]).toMutableList()
+        if (position !in current.indices) return@edit
+        current[position] = value
+        prefs[Keys.perDialSkins] = current.joinToString(";") { it.name }
+    }
     suspend fun setGaugeAccent(value: GaugeAccent) = edit { it[Keys.gaugeAccent] = value.name }
 
     suspend fun setLastDeviceAddress(address: String?) = edit { prefs ->

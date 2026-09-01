@@ -1,5 +1,7 @@
 package com.mohid.obd2dash
 
+import com.mohid.obd2dash.data.AppSettings
+import com.mohid.obd2dash.data.GaugeSkin
 import com.mohid.obd2dash.obd.VinDecoder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,5 +63,45 @@ class VinDecoderTest {
         // Year code Y on the second cycle is 2030, past what any car can claim.
         val facts = VinDecoder.decode("JTDBR3GE1Y0000001")!!
         assertNull(facts.modelYear)
+    }
+}
+
+class GaugeSkinTest {
+
+    @Test
+    fun `the two meta choices are not offered as faces for a single dial`() {
+        assertFalse(GaugeSkin.SHOWCASE in GaugeSkin.selectable)
+        assertFalse(GaugeSkin.CUSTOM in GaugeSkin.selectable)
+        assertTrue(GaugeSkin.HEXA in GaugeSkin.selectable)
+        assertEquals(GaugeSkin.entries.size - 2, GaugeSkin.selectable.size)
+    }
+
+    @Test
+    fun `per dial choices only apply when the mode asks for them`() {
+        val perDial = listOf(
+            GaugeSkin.CIRCUIT,
+            GaugeSkin.COCKPIT,
+            GaugeSkin.HEXA,
+            GaugeSkin.HERITAGE_CARBON,
+        )
+        val custom = AppSettings(gaugeSkin = GaugeSkin.CUSTOM, perDialSkins = perDial)
+        assertEquals(GaugeSkin.CIRCUIT, custom.skinFor(0))
+        assertEquals(GaugeSkin.HERITAGE_CARBON, custom.skinFor(3))
+
+        // A global face wins over whatever the per-dial list happens to hold.
+        val global = AppSettings(gaugeSkin = GaugeSkin.HEXA, perDialSkins = perDial)
+        assertEquals(GaugeSkin.HEXA, global.skinFor(0))
+        assertEquals(GaugeSkin.HEXA, global.skinFor(3))
+
+        // Compare all still hands out its own pairing.
+        val showcase = AppSettings(gaugeSkin = GaugeSkin.SHOWCASE, perDialSkins = perDial)
+        assertEquals(GaugeSkin.HEXA, showcase.skinFor(0))
+    }
+
+    @Test
+    fun `a short or damaged per dial list falls back per position`() {
+        val custom = AppSettings(gaugeSkin = GaugeSkin.CUSTOM, perDialSkins = listOf(GaugeSkin.CIRCUIT))
+        assertEquals(GaugeSkin.CIRCUIT, custom.skinFor(0))
+        assertEquals(GaugeSkin.CLASSIC, custom.skinFor(2))
     }
 }

@@ -172,9 +172,10 @@ fun MetricGauge(
         GaugeSkin.HERITAGE_CARBON -> HeritageGauge(state, modifier, HeritageFinish.CARBON)
         GaugeSkin.COCKPIT -> CockpitGauge(state, modifier)
         GaugeSkin.CIRCUIT -> CircuitGauge(state, modifier)
-        // SHOWCASE is resolved to a real face before it ever reaches here.
-        // Falling back rather than throwing keeps a stale setting harmless.
-        GaugeSkin.CLASSIC, GaugeSkin.SHOWCASE -> ClassicGauge(state, modifier)
+        // SHOWCASE and CUSTOM are both resolved to a real face before they
+        // ever reach here. Falling back rather than throwing keeps a stale
+        // setting harmless.
+        GaugeSkin.CLASSIC, GaugeSkin.SHOWCASE, GaugeSkin.CUSTOM -> ClassicGauge(state, modifier)
     }
 }
 

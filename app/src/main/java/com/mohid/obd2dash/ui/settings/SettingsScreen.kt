@@ -62,6 +62,9 @@ import com.mohid.obd2dash.data.PressureUnit
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.mohid.obd2dash.data.DEFAULT_AI_MODEL
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.text.style.TextAlign
+import com.mohid.obd2dash.data.DIAL_LABELS
 import com.mohid.obd2dash.obd.FuelUnit
 import com.mohid.obd2dash.data.VehicleProfile
 import com.mohid.obd2dash.obd.metricByKey
@@ -173,6 +176,18 @@ fun SettingsScreen(graph: AppGraph) {
                 selected = settings.gaugeSkin == skin,
                 onSelect = { scope.launch { store.setGaugeSkin(skin) } },
             )
+        }
+
+        // Only worth the screen space once Per dial is what is actually
+        // driving the dashboard.
+        if (settings.gaugeSkin == GaugeSkin.CUSTOM) {
+            itemsIndexed(DIAL_LABELS, key = { index, _ -> "dial-$index" }) { index, label ->
+                DialSkinPicker(
+                    dialLabel = label,
+                    selected = settings.perDialSkins.getOrNull(index) ?: GaugeSkin.CLASSIC,
+                    onSelect = { scope.launch { store.setDialSkin(index, it) } },
+                )
+            }
         }
 
         item {
@@ -588,6 +603,82 @@ private fun SkinRow(skin: GaugeSkin, selected: Boolean, onSelect: () -> Unit) {
                     skin = skin,
                     modifier = Modifier.width(116.dp),
                 )
+            }
+        }
+    }
+}
+
+/**
+ * One dial's face, chosen from a horizontal strip of live previews.
+ *
+ * A strip rather than four more full length radio lists: nine faces times four
+ * dials as stacked rows would be thirty six cards to scroll past, and the whole
+ * point of choosing per dial is comparing them against each other.
+ */
+@Composable
+private fun DialSkinPicker(
+    dialLabel: String,
+    selected: GaugeSkin,
+    onSelect: (GaugeSkin) -> Unit,
+) {
+    SettingsCard {
+        Column(Modifier.padding(vertical = 12.dp)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(dialLabel, style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.weight(1f))
+                Text(selected.label, style = MaterialTheme.typography.bodySmall, color = Cyan)
+            }
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 8.dp, start = 14.dp, end = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                GaugeSkin.selectable.forEach { skin ->
+                    val isSelected = skin == selected
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(104.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) Cyan else PanelRaised,
+                                shape = RoundedCornerShape(10.dp),
+                            )
+                            .clickable { onSelect(skin) }
+                            .padding(vertical = 8.dp),
+                    ) {
+                        MetricGauge(
+                            label = "RPM",
+                            value = PREVIEW_RPM,
+                            unit = "rpm",
+                            min = 0f,
+                            max = 8000f,
+                            zones = listOf(
+                                GaugeZone(0f, 5800f, ZoneGood, healthy = true),
+                                GaugeZone(5800f, 6800f, ZoneWarn),
+                                GaugeZone(6800f, 8000f, ZoneDanger),
+                            ),
+                            valueText = PREVIEW_RPM.toInt().toString(),
+                            animationMillis = 1,
+                            skin = skin,
+                            modifier = Modifier.width(88.dp),
+                        )
+                        Text(
+                            skin.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) Cyan else TextMuted,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 6.dp, start = 4.dp, end = 4.dp),
+                        )
+                    }
+                }
             }
         }
     }

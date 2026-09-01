@@ -226,7 +226,7 @@ private fun PidGauge(
         zones = zonesFor(pid, settings.thresholdFor(pid.key), pid.displayMin, pid.displayMax, settings.gaugeAccent.color),
         valueText = value?.let { pid.format(it) },
         animationMillis = settings.pollIntervalMs + 100,
-        skin = settings.gaugeSkin.resolve(position),
+        skin = settings.skinFor(position),
         modifier = modifier,
     )
 }
@@ -273,7 +273,7 @@ private fun BoostGauge(
         origin = unit.from(0f),
         valueText = kpa?.let { "%.${unit.decimals}f".format(unit.from(it)) },
         animationMillis = settings.pollIntervalMs + 100,
-        skin = settings.gaugeSkin.resolve(position),
+        skin = settings.skinFor(position),
         modifier = modifier,
     )
 }
