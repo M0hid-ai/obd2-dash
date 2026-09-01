@@ -12,6 +12,9 @@ import com.mohid.obd2dash.alerts.AlertSeverity
 import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.data.SettingsStore
 import com.mohid.obd2dash.data.TripRecorder
+import com.mohid.obd2dash.ai.VehicleIdentifier
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import com.mohid.obd2dash.data.VehicleProfile
 import com.mohid.obd2dash.data.VehiclePrompt
 import com.mohid.obd2dash.data.db.AppDatabase
@@ -91,6 +94,7 @@ class ObdController(
     private val context: Context,
     private val db: AppDatabase,
     private val settingsStore: SettingsStore,
+    private val vehicleIdentifier: VehicleIdentifier,
     private val notifier: AlertNotifier,
     private val locationTracker: LocationTracker,
     private val scope: CoroutineScope,
@@ -341,11 +345,13 @@ class ObdController(
                 vin = identity.vin,
                 make = facts?.make,
                 modelYear = facts?.modelYear,
+                identifying = identity.vin != null,
             )
             appendLog(
                 "New vehicle ${facts?.label ?: identity.vin ?: identity.identity}, " +
                     "waiting for turbo/NA",
             )
+            identity.vin?.let { identifyVehicle(identity.identity, it) }
         }
 
         session = newSession
@@ -912,6 +918,45 @@ class ObdController(
         )
     }
 
+    /**
+     * Asks the model what car this VIN is, in the background.
+     *
+     * Deliberately not blocking the turbo question. The lookup needs a network
+     * the car park may not have, and the answer only decorates the dialog:
+     * whether the engine is force fed is what the poll loop is actually waiting
+     * on, and the driver can answer that before the name arrives.
+     */
+    private fun identifyVehicle(identity: String, vin: String) {
+        scope.launch {
+            val settings = settingsStore.settings.first()
+            if (settings.aiApiKey.isBlank()) {
+                _vehiclePrompt.update { it?.takeIf { p -> p.identity == identity }?.copy(identifying = false) ?: it }
+                return@launch
+            }
+            val result = vehicleIdentifier.identify(settings.aiApiKey, settings.aiModel, vin)
+            // The driver may have answered and moved on, or unplugged and met a
+            // different car, while this was in flight.
+            val current = _vehiclePrompt.value
+            if (current?.identity != identity) return@launch
+            _vehiclePrompt.value = when (result) {
+                is VehicleIdentifier.Result.Success -> {
+                    appendLog("Identified as ${result.identity.label}")
+                    current.copy(
+                        make = result.identity.make ?: current.make,
+                        model = result.identity.model,
+                        modelYear = result.identity.modelYear ?: current.modelYear,
+                        identifying = false,
+                    )
+                }
+
+                is VehicleIdentifier.Result.Failure -> {
+                    appendLog("Could not identify the VIN: ${result.message}")
+                    current.copy(identifying = false, identifyError = result.message)
+                }
+            }
+        }
+    }
+
     fun answerVehiclePrompt(turbo: Boolean) {
         val prompt = _vehiclePrompt.value ?: return
         val profile = VehicleProfile(
@@ -921,6 +966,7 @@ class ObdController(
             labeledAt = System.currentTimeMillis(),
             make = prompt.make,
             modelYear = prompt.modelYear,
+            model = prompt.model,
         )
         _vehiclePrompt.value = null
         setTurbo(turbo)

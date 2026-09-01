@@ -2,7 +2,9 @@ package com.mohid.obd2dash
 
 import android.app.Application
 import android.content.Context
+import com.mohid.obd2dash.ai.GeminiClient
 import com.mohid.obd2dash.ai.TripAnalyst
+import com.mohid.obd2dash.ai.VehicleIdentifier
 import com.mohid.obd2dash.alerts.AlertNotifier
 import com.mohid.obd2dash.data.SettingsStore
 import com.mohid.obd2dash.data.TripExporter
@@ -43,13 +45,18 @@ class AppGraph(context: Context) {
 
     val tripExporter: TripExporter by lazy { TripExporter(appContext, tripRepository, settingsStore) }
 
-    val tripAnalyst: TripAnalyst by lazy { TripAnalyst() }
+    val geminiClient: GeminiClient by lazy { GeminiClient() }
+
+    val tripAnalyst: TripAnalyst by lazy { TripAnalyst(geminiClient) }
+
+    val vehicleIdentifier: VehicleIdentifier by lazy { VehicleIdentifier(geminiClient) }
 
     val controller: ObdController by lazy {
         ObdController(
             context = appContext,
             db = database,
             settingsStore = settingsStore,
+            vehicleIdentifier = vehicleIdentifier,
             notifier = notifier,
             locationTracker = locationTracker,
             scope = applicationScope,

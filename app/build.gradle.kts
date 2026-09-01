@@ -101,4 +101,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // android.jar ships org.json as stubs, and returnDefaultValues turns those
+    // into nulls rather than errors, so the JVM tests need a real parser.
+    testImplementation(libs.json)
 }

@@ -70,7 +70,15 @@ data class VehiclePrompt(
     /** What the VIN decodes to, so the dialog can name the car it found. */
     val make: String? = null,
     val modelYear: Int? = null,
+    /** Filled in by the model lookup, which a local decode cannot produce. */
+    val model: String? = null,
+    /** True while that lookup is still in flight. */
+    val identifying: Boolean = false,
+    /** Why the lookup produced nothing, when it produced nothing. */
+    val identifyError: String? = null,
 ) {
     val label: String?
-        get() = listOfNotNull(make, modelYear?.toString()).joinToString(" ").ifBlank { null }
+        get() = listOfNotNull(make, model, modelYear?.toString())
+            .joinToString(" ")
+            .ifBlank { null }
 }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -131,6 +132,8 @@ fun DashboardScreen(
                 NewVehicleDialog(
                     vin = prompt.vin,
                     label = prompt.label,
+                    identifying = prompt.identifying,
+                    identifyError = prompt.identifyError,
                     onTurbo = { graph.controller.answerVehiclePrompt(true) },
                     onNaturallyAspirated = { graph.controller.answerVehiclePrompt(false) },
                 )
@@ -468,24 +471,57 @@ private fun TripControls(
 private fun NewVehicleDialog(
     vin: String?,
     label: String?,
+    identifying: Boolean,
+    identifyError: String?,
     onTurbo: () -> Unit,
     onNaturallyAspirated: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = {},
-        title = { Text(label ?: "New vehicle") },
+        title = { Text("New car detected") },
         text = {
             Column {
+                if (label != null) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Cyan,
+                    )
+                }
+                if (identifying) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 6.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            color = Cyan,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            "Looking up the VIN…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 Text(
                     when {
-                        label != null && vin != null ->
-                            "New to this phone, and the VIN reads as a $label. VIN $vin."
-                        vin != null ->
-                            "This ECU has not been seen on this phone before. VIN $vin."
+                        vin != null -> "First time on this phone. VIN $vin."
                         else ->
                             "This ECU has not been seen on this phone before. The adapter could not read a VIN, so it will be recognised by the PIDs it answers."
                     },
+                    modifier = Modifier.padding(top = 8.dp),
                 )
+                identifyError?.let {
+                    Text(
+                        "Could not look the VIN up: $it You can type the model in Settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
                 Text(
                     "Is the engine turbocharged? Boost and MAP polling are skipped on a naturally aspirated car, which keeps the gauges faster.",
                     modifier = Modifier.padding(top = 10.dp),
