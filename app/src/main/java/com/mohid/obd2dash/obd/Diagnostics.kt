@@ -96,7 +96,7 @@ private const val RESERVED = "Reserved"
  * Plain-English text for a trouble code.
  *
  * Only the generic SAE codes can be named from a table. Anything in the
- * manufacturer-specific ranges means something different on a Daihatsu than it
+ * manufacturer-specific ranges mean something different between manufacturers, so it
  * does on a Nissan, so those are described by their range rather than guessed
  * at. A wrong definition is worse than an honest "look this one up".
  */

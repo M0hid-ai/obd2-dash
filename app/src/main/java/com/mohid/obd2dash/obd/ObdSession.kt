@@ -105,7 +105,10 @@ class ObdSession(
         send("ATS0", AT_TIMEOUT_MS)   // no spaces in hex
         send("ATH0", AT_TIMEOUT_MS)   // no CAN headers
         send("ATAT1", AT_TIMEOUT_MS)  // adaptive timing
-        send("ATST32", AT_TIMEOUT_MS) // ~200ms per-request ceiling
+        // ~100ms per-request ceiling. The previous 200ms value was the adapter
+        // sitting idle after a fast ECU had already answered, which is what
+        // made a "300ms poll interval" feel like half a second on a good link.
+        send("ATST19", AT_TIMEOUT_MS)
 
         onProgress("Negotiating protocol…")
         val protocol = negotiateProtocol(onProgress)
@@ -261,6 +264,23 @@ class ObdSession(
             return false
         }
         return ElmProtocol.sanitize(raw).contains("44")
+    }
+
+    /**
+     * VIN first, calibration id as a tie-breaker, then a fingerprint of the
+     * Mode 01 support bitmask. The fingerprint is only used when Mode 09 is
+     * silent, which is common on clone adapters.
+     */
+    suspend fun readVehicleIdentity(supportedMode01: Set<Int>): VehicleIdentity.Info {
+        val vin = runCatching {
+            VehicleIdentity.decodeVin(send("0902", SCAN_TIMEOUT_MS))
+        }.getOrNull()
+        val calid = runCatching {
+            VehicleIdentity.decodeCalid(send("0904", SCAN_TIMEOUT_MS))
+        }.getOrNull()
+        val identity = vin ?: VehicleIdentity.fingerprint(supportedMode01, calid)
+        Log.i(TAG, "Vehicle identity=$identity vin=${vin ?: "none"} calid=${calid ?: "none"}")
+        return VehicleIdentity.Info(identity = identity, vin = vin, calid = calid)
     }
 
     private suspend fun send(command: String, timeoutMs: Long): String =

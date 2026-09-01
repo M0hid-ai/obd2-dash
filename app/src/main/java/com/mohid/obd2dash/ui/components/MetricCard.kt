@@ -22,6 +22,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,10 +116,17 @@ fun MetricCard(
                 if (fraction != null) {
                     Box(
                         Modifier
-                            .fillMaxWidth(animated)
+                            .fillMaxWidth()
                             .height(3.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(zone.color),
+                            .background(zone.color)
+                            .graphicsLayer {
+                                // Scale instead of fillMaxWidth(animated): that path
+                                // relayouts the card every frame, which is what made
+                                // the metrics grid hitch while scrolling.
+                                scaleX = animated
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                            },
                     )
                 }
             }

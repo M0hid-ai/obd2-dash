@@ -8,7 +8,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2025.06-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![Room](https://img.shields.io/badge/Room-2.7.2-FF6F00?style=flat-square&logo=sqlite&logoColor=white)](https://developer.android.com/training/data-storage/room)
-[![Tests](https://img.shields.io/badge/tests-56%20passing-2ED573?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-61%20passing-2ED573?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 <img src="docs/screenshots/dashboard-alert.png" width="260" alt="Live dashboard with a critical alert" />
@@ -46,7 +46,7 @@ Native Android. No C, no Python, no cross-platform runtime — this is a Kotlin 
 | **Storage** | Room (SQLite) for trips and samples, DataStore for preferences and thresholds |
 | **Transport** | `BluetoothSocket` over RFCOMM/SPP, straight to the ELM327. No third-party OBD library — the AT handshake and every PID decoder are in this repo |
 | **Build** | Gradle 8.14 with AGP 8.11.1, KSP for Room. Single module |
-| **Testing** | JUnit 4 on the JVM, 56 tests, no device needed |
+| **Testing** | JUnit 4 on the JVM, 61 tests, no device needed |
 | **Dependency injection** | A hand-written `AppGraph`. One module with one long-lived object, so a framework would cost build time and an annotation processor without buying anything back |
 
 Third-party runtime dependencies are AndroidX plus Play Services Location. That is the whole list.
@@ -129,7 +129,7 @@ ECU does not publish: a car that answers twelve parameters gets twelve cards, no
   <tr>
     <td>Every drive, kept indefinitely.</td>
     <td>Scrubbable charts with the peak marked, plus min/avg/max for everything logged. Exports from here.</td>
-    <td>Sensible defaults for a small petrol engine. Edit any bound, leave one blank to stop checking it.</td>
+    <td>Conservative generic OBD2 defaults. Edit any bound, leave one blank to stop checking it.</td>
   </tr>
 </table>
 
@@ -234,7 +234,7 @@ or a question at setup:
 | What differs | How it is handled |
 |---|---|
 | **Which parameters exist** | Discovered from the `0100` / `0120` / `0140` support bitmasks at connect, then narrowed further: anything advertised that answers `NO DATA` three times is dropped for the session. |
-| **Turbo or naturally aspirated** | Decided from the manifold, not a setting. Only a compressor can push manifold pressure above ambient, so one reading past ambient proves forced induction and nothing proves the opposite. Until that reading arrives, the fourth dial is scaled to the vacuum the engine actually pulls and reads **Vacuum**; after it, the scale opens up and it reads **Boost**. |
+| **Turbo or naturally aspirated** | On first connection to a VIN, the app asks the driver. The choice is saved per vehicle and skips MAP/barometric/boost polling for naturally aspirated cars, freeing the serial link for useful PIDs. When Mode 09 cannot provide a VIN, a calibration-and-supported-PID fingerprint is used as a clearly labelled best-effort fallback. |
 | **No MAP sensor at all** | The fourth dial shows engine load instead of a permanently blank boost gauge. |
 | **How fast the ECU answers** | The slow-tier read count per cycle is fitted to a measured round-trip cost, so a quick link refreshes the long tail several times faster and a slow one still keeps the gauges at rate. |
 | **Which protocol it speaks** | `ATSP0` first. If its auto-search gives up, the adapter is told explicitly which protocol to try, CAN first and the K-line ones after, rather than reporting the car as unreachable. |
@@ -290,11 +290,27 @@ CSS, follows the reader's light or dark preference, and opens in any browser wit
 that never moved gets no route section rather than a single dot, and repeated fixes from a car
 stopped at lights are dropped from the polyline instead of being written out hundreds of times.
 
+## Vehicle setup and fuel economy
+
+When an ECU is first connected, OBD2 Dash asks whether the car is turbocharged. A Mode 09 VIN is
+used when available; otherwise the app saves a labelled ECU fingerprint based on calibration ID and
+the PIDs the ECU supports. The answer is editable or removable in **Settings > Vehicles**. Naturally
+aspirated profiles skip turbo-only MAP, barometric-pressure and boost work, so the adapter spends
+more of each cycle on metrics that apply to that car.
+
+Trip fuel economy is calculated only when the ECU supplies an appropriate signal. PID `015E` (engine
+fuel rate) is preferred. If it is absent but MAF is available, the app estimates litres per hour from
+air mass, a stoichiometric AFR and typical fuel density, and labels the saved trip as an estimate.
+Fuel use is integrated over time and the completed report shows litres used and average L/100 km once
+the trip has enough distance and fuel to make the value meaningful. It is an estimate, not a
+replacement for a calibrated fuel-flow meter; injector changes, non-standard fuels and short trips
+can make it less accurate.
+
 ## Running without the car
 
 Settings → Demo mode, or pick **Demo mode** on the Adapter screen.
 
-`SimulatedObdTransport` impersonates an ELM327 sitting in front of a small turbocharged engine
+`SimulatedObdTransport` impersonates an ELM327 sitting in front of a turbocharged engine
 running a repeating two-minute cycle: idle, pull away, cruise, an overtake, then back to a stop.
 Throttle, boost, MAF, coolant warm-up and ignition timing are all derived from one speed curve, so
 the readings stay physically consistent with each other rather than being independently faked. It can
@@ -342,7 +358,7 @@ debugging enabled:
 
 ```bash
 ./gradlew installDebug     # build and install over USB in one step
-./gradlew testDebugUnitTest  # 56 JVM tests, no device needed
+./gradlew testDebugUnitTest  # 61 JVM tests, no device needed
 ```
 
 The debug build installs alongside a release one — it uses the application ID suffix `.debug` — so
@@ -506,7 +522,7 @@ Deliberately not text to speech. Speech is slow to parse and easy to talk over.
 
 ## Testing
 
-56 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
+61 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
 wrong decoder does not crash, it just shows you a plausible number that happens to be false.
 
 - reply sanitising: embedded spaces, `SEARCHING...` notices, multi-frame counters, truncated frames
@@ -555,8 +571,8 @@ your Firebase project. `TripEntity.syncedAt` and `TripDao.pendingUpload()` are a
 | Phone | Android 8.0 or newer |
 | To build | JDK 17 or 21, Android SDK platform 36 |
 
-Development and on-road testing were done with an ELM327 Mini against two different small petrol
-engines, one turbocharged and one naturally aspirated, both on ISO 15765-4 CAN 11 bit / 500 kbaud.
+The app is designed around the generic OBD2 / EOBD / JOBD standards rather than a particular car
+make or model.
 
 The [PID reference](docs/PID-REFERENCE.md) lists everything the app can decode.
 

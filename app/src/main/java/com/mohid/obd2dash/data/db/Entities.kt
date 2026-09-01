@@ -34,6 +34,12 @@ data class TripEntity(
      */
     val readinessIncomplete: Int? = null,
     val readinessSupported: Int? = null,
+    /** Litres burned this trip. Null when the ECU never gave a usable fuel signal. */
+    val fuelLitres: Double? = null,
+    /** Trip average, L/100 km. Null when the drive was too short to be meaningful. */
+    val fuelEconomyLPer100: Float? = null,
+    /** `ecu` when PID 015E was used, `maf` when estimated from mass air flow. */
+    val fuelSource: String? = null,
     /** Null until the post-trip batch upload succeeds. */
     val syncedAt: Long? = null,
 )

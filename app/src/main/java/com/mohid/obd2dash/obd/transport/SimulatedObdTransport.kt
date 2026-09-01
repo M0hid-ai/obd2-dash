@@ -10,7 +10,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * A stand-in ELM327 that drives a plausible 660cc turbo (Daihatsu KF-VET, CVT)
+ * A stand-in ELM327 that drives a plausible small turbo engine
  * around a repeating two-minute cycle.
  *
  * The point is that everything above the transport (handshake, PID scan,
@@ -69,6 +69,8 @@ class SimulatedObdTransport(
         cmd.startsWith("07") -> dtcReply(0x07, pendingCodes)
         cmd.startsWith("0A") -> dtcReply(0x0A, permanentCodes)
         cmd.startsWith("01") -> mode01Reply(cmd)
+        cmd.startsWith("0902") -> vinReply()
+        cmd.startsWith("0904") -> calidReply()
         else -> "NO DATA"
     }
 
@@ -139,6 +141,7 @@ class SimulatedObdTransport(
             0x49 -> pct(s.throttle * 1.02f)
             0x4C -> pct(s.throttle)
             0x5C -> intArrayOf((s.oilC + 40f).roundToInt())
+            0x5E -> word((s.fuelLph * 20f).roundToInt())
             else -> null
         }
     }
@@ -180,6 +183,7 @@ class SimulatedObdTransport(
         val lambda: Float,
         val fuelLevel: Float,
         val runTimeSec: Int,
+        val fuelLph: Float,
     )
 
     /**
@@ -225,6 +229,7 @@ class SimulatedObdTransport(
 
         val intake = AMBIENT_C + 9f + max(0f, boost) * 0.30f - min(speed, 80f) * 0.05f
         val maf = (rpm / 1000f) * (mapKpa / 100f) * 4.6f + 0.4f
+        val fuelLph = (maf / 14.7f / 0.737f) * 3.6f
         val load = (throttle * 0.72f + max(0f, boost) * 0.42f + 8f).coerceIn(0f, 100f)
         val timing = (30f - throttle * 0.16f - max(0f, boost) * 0.22f).coerceIn(-8f, 42f)
         val voltage = 14.25f - load * 0.006f + jitter(t, 1.3f, 0.04f)
@@ -247,6 +252,7 @@ class SimulatedObdTransport(
             lambda = lambda,
             fuelLevel = (66f - elapsed / 900f).coerceIn(4f, 100f),
             runTimeSec = elapsed.toInt(),
+            fuelLph = fuelLph,
         )
     }
 
@@ -283,7 +289,20 @@ class SimulatedObdTransport(
         val supportedPids = setOf(
             0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
             0x10, 0x11, 0x1F, 0x21, 0x2F, 0x33, 0x42, 0x43, 0x44, 0x45, 0x46,
-            0x49, 0x4C, 0x5C,
+            0x49, 0x4C, 0x5C, 0x5E,
         )
+
+        const val SIM_VIN = "JTDBR32E720000001"
+        const val SIM_CALID = "DEMOSIM-ECU-0001"
+    }
+
+    private fun vinReply(): String {
+        val ascii = SIM_VIN.map { it.code }
+        return "490201" + ascii.joinToString("") { "%02X".format(it) }
+    }
+
+    private fun calidReply(): String {
+        val ascii = SIM_CALID.map { it.code }
+        return "490401" + ascii.joinToString("") { "%02X".format(it) }
     }
 }

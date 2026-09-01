@@ -164,6 +164,12 @@ class TripExporter(
         tile(sb, "Duration", formatElapsed(trip.durationMs))
         tile(sb, "Distance", "%.2f km".format(Locale.UK, trip.distanceMeters / 1000))
         tile(sb, "Samples", trip.sampleCount.toString())
+        trip.fuelEconomyLPer100?.let {
+            tile(sb, "Fuel average", "%.1f L/100 km".format(Locale.UK, it))
+        }
+        trip.fuelLitres?.let {
+            tile(sb, "Fuel used", "%.2f L".format(Locale.UK, it))
+        }
         tile(sb, "Started", if (trip.startedManually) "Manually" else "Engine on")
         sb.append("</section>")
 

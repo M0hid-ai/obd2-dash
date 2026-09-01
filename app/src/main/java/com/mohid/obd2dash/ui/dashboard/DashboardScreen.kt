@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -41,6 +42,8 @@ import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.obd.ConnectionState
 import com.mohid.obd2dash.obd.DerivedMetrics
+import com.mohid.obd2dash.obd.FuelEconomy
+import com.mohid.obd2dash.obd.FuelSource
 import com.mohid.obd2dash.obd.Induction
 import com.mohid.obd2dash.obd.MetricSnapshot
 import com.mohid.obd2dash.obd.ObdPid
@@ -83,11 +86,10 @@ fun DashboardScreen(
     val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
     val supported by graph.controller.supportedPids.collectAsStateWithLifecycle()
     val induction by graph.controller.induction.collectAsStateWithLifecycle()
-    // Before a scan has run there is no PID list to judge by, and swapping the
-    // dial out on that basis would mean the disconnected dashboard guesses the
-    // car has no MAP sensor. Absent evidence, keep the boost dial.
-    val hasMap = remember(supported) {
-        supported.isEmpty() || supported.any { it.key == PidRegistry.MAP.key }
+    val turbo by graph.controller.turboCar.collectAsStateWithLifecycle()
+    val vehiclePrompt by graph.controller.vehiclePrompt.collectAsStateWithLifecycle()
+    val hasMap = remember(supported, turbo) {
+        turbo && (supported.isEmpty() || supported.any { it.key == PidRegistry.MAP.key })
     }
 
     val rpmRule = settings.thresholdFor(PidRegistry.RPM.key)
@@ -123,6 +125,14 @@ fun DashboardScreen(
                 onDisconnect = { ObdService.stop(context) },
                 onOpenConnect = onOpenConnect,
             )
+
+            vehiclePrompt?.let { prompt ->
+                NewVehicleDialog(
+                    vin = prompt.vin,
+                    onTurbo = { graph.controller.answerVehiclePrompt(true) },
+                    onNaturallyAspirated = { graph.controller.answerVehiclePrompt(false) },
+                )
+            }
 
             AlertBanner(
                 alerts = alerts,
@@ -394,6 +404,39 @@ private fun TripControls(
                         StatTile("Distance", "%.2f km".format(trip.distanceMeters / 1000))
                         StatTile("Samples", trip.sampleCount.toString())
                     }
+                    if (trip.instantLPer100 != null || trip.tripLPer100 != null || trip.fuelLitres > 0.0) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            StatTile(
+                                "Instant",
+                                trip.instantLPer100?.let { FuelEconomy.formatLPer100(it) } ?: "—",
+                            )
+                            StatTile(
+                                "Average",
+                                trip.tripLPer100?.let { FuelEconomy.formatLPer100(it) } ?: "—",
+                            )
+                            StatTile(
+                                "Used",
+                                if (trip.fuelLitres > 0.0) FuelEconomy.formatLitres(trip.fuelLitres) else "—",
+                            )
+                        }
+                        trip.fuelSource?.let { source ->
+                            Text(
+                                if (source == FuelSource.ECU_RATE) {
+                                    "From the ECU fuel-rate PID"
+                                } else {
+                                    "Estimated from MAF (no fuel-rate PID on this ECU)"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
                 }
 
                 TripState.Idle -> {
@@ -419,6 +462,40 @@ private fun TripControls(
             }
         }
     }
+}
+
+@Composable
+private fun NewVehicleDialog(
+    vin: String?,
+    onTurbo: () -> Unit,
+    onNaturallyAspirated: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("New vehicle") },
+        text = {
+            Column {
+                Text(
+                    if (vin != null) {
+                        "This ECU has not been seen on this phone before. VIN $vin."
+                    } else {
+                        "This ECU has not been seen on this phone before. The adapter could not read a VIN, so it will be recognised by the PIDs it answers."
+                    },
+                )
+                Text(
+                    "Is the engine turbocharged? Boost and MAP polling are skipped on a naturally aspirated car, which keeps the gauges faster.",
+                    modifier = Modifier.padding(top = 10.dp),
+                    color = TextMuted,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onTurbo) { Text("Turbo") }
+        },
+        dismissButton = {
+            TextButton(onClick = onNaturallyAspirated) { Text("Naturally aspirated") }
+        },
+    )
 }
 
 @Composable

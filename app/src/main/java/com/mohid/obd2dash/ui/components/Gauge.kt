@@ -132,7 +132,12 @@ fun MetricGauge(
     val target = ((value ?: min) - min) / span
     val fraction by animateFloatAsState(
         targetValue = target.coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = animationMillis, easing = LinearEasing),
+        animationSpec = tween(
+            // Cap the tween so a slow adapter does not make the needle feel drunk.
+            // Floor it so a 150ms poll still interpolates instead of snapping.
+            durationMillis = animationMillis.coerceIn(90, 220),
+            easing = LinearEasing,
+        ),
         label = "gauge-$label",
     )
 

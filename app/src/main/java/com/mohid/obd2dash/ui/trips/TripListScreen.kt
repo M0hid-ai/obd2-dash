@@ -146,6 +146,10 @@ private fun TripRow(trip: TripEntity, onClick: () -> Unit, onDelete: () -> Unit)
                         append("%.2f km".format(trip.distanceMeters / 1000))
                         append(" · ")
                         append(if (ongoing) "recording" else formatElapsed(trip.durationMs))
+                        trip.fuelEconomyLPer100?.let {
+                            append(" · ")
+                            append("%.1f L/100 km".format(it))
+                        }
                         append(" · ")
                         append("${trip.sampleCount} samples")
                         if (trip.startedManually) append(" · manual")

@@ -223,6 +223,8 @@ object PidRegistry {
         ObdPid("oilTemp", 0x5C, "Engine Oil Temperature", "Oil Temp", "°C", 1, -40f, 210f, 0, PidGroup.ENGINE, decode = ::tempA),
         ObdPid("fuelRate", 0x5E, "Engine Fuel Rate", "Fuel Rate", "L/h", 2, 0f, 3212f, 2, PidGroup.FUEL,
             decode = { d -> word(d)?.let { it / 20f } }),
+        ObdPid("fuelType", 0x51, "Fuel Type", "Fuel Type", "", 1, 0f, 23f, 0, PidGroup.FUEL,
+            decode = { d -> d.getOrNull(0)?.toFloat() }),
     )
 
     /** Every decodable PID, keyed by its stable string id. */
@@ -254,6 +256,14 @@ object PidRegistry {
     val highRate: List<ObdPid> = listOf(RPM, SPEED, MAP)
 
     /**
+     * Only useful on a force-fed engine. MAP still exists on plenty of NA cars,
+     * but spending a full RFCOMM round trip every cycle on it just to watch
+     * vacuum is a waste when that slot could keep the gauges at rate instead.
+     * Boost is derived from MAP, so it goes with it.
+     */
+    val turboSpecificKeys: Set<String> = setOf(MAP.key, BAROMETRIC.key, "boost")
+
+    /**
      * Barometric pressure only moves with the weather and your altitude, so it
      * is read once at connect and refreshed occasionally rather than polled.
      */
@@ -262,7 +272,7 @@ object PidRegistry {
         // Odometer-style counters that only move over whole drives, plus the
         // MIL counters, which sit at zero on a healthy car and can only start
         // moving after a fault the diagnostics poll has already caught.
-        "fuelLevel", "warmups", "distanceCleared", "clearedTime", "distanceMil", "milTime",
+        "fuelLevel", "warmups", "distanceCleared", "clearedTime", "distanceMil", "milTime", "fuelType",
     )
 }
 
@@ -282,10 +292,26 @@ object DerivedMetrics {
         group = PidGroup.PRIMARY, decode = { null },
     )
 
+    /**
+     * Litres per hour inferred from MAF when PID 015E is absent. Same unit as
+     * the real fuel-rate PID so trip integration can treat them alike.
+     */
+    val FUEL_RATE_MAF = ObdPid(
+        key = "fuelRateMaf", pid = -2, label = "Estimated Fuel Rate (MAF)", shortLabel = "Fuel Est.",
+        unit = "L/h", dataBytes = 0, displayMin = 0f, displayMax = 40f, decimals = 2,
+        group = PidGroup.FUEL, decode = { null },
+    )
+
+    val FUEL_ECONOMY = ObdPid(
+        key = "fuelEcon", pid = -3, label = "Instant Fuel Economy", shortLabel = "Fuel",
+        unit = "L/100 km", dataBytes = 0, displayMin = 0f, displayMax = 40f, decimals = 1,
+        group = PidGroup.FUEL, decode = { null },
+    )
+
     /** Fallback used when the ECU does not report PID 0133: sea-level standard. */
     const val DEFAULT_BAROMETRIC_KPA = 101f
 
-    val all: List<ObdPid> = listOf(BOOST)
+    val all: List<ObdPid> = listOf(BOOST, FUEL_RATE_MAF, FUEL_ECONOMY)
 
     fun byKey(key: String): ObdPid? = all.firstOrNull { it.key == key }
 }

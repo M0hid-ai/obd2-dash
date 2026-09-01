@@ -192,3 +192,65 @@ object DtcDecoder {
         return "$letter$d1${d2.toString(16).uppercase()}${d3.toString(16).uppercase()}${d4.toString(16).uppercase()}"
     }
 }
+
+/**
+ * How we tell one car from the next.
+ *
+ * VIN (Mode 09 PID 02) is the real identifier. Plenty of cheap adapters and a
+ * few ECUs refuse Mode 09, so the fallback is a fingerprint of the supported
+ * Mode 01 bitmask plus the calibration id when that is present. Two cars that
+ * share an ECU family can collide on the fallback; VIN never does.
+ */
+object VehicleIdentity {
+
+    data class Info(
+        val identity: String,
+        val vin: String?,
+        val calid: String?,
+    )
+
+    fun decodeVin(raw: String): String? {
+        val clean = ElmProtocol.sanitize(raw)
+        val start = clean.indexOf("4902")
+        if (start < 0) return null
+        var hex = clean.substring(start + 4)
+        // ISO-TP item index, almost always 01, sitting in front of the ASCII.
+        if (hex.length >= 4 && hex.startsWith("01")) hex = hex.drop(2)
+        val bytes = ElmProtocol.hexToBytes(hex) ?: return null
+        val chars = buildString(17) {
+            for (b in bytes) {
+                val c = b.toChar()
+                if (c in 'A'..'Z' || c in '0'..'9') append(c)
+                if (length == 17) break
+            }
+        }
+        return chars.takeIf { it.length == 17 }
+    }
+
+    fun decodeCalid(raw: String): String? {
+        val clean = ElmProtocol.sanitize(raw)
+        val start = clean.indexOf("4904")
+        if (start < 0) return null
+        var hex = clean.substring(start + 4)
+        if (hex.length >= 4 && hex.startsWith("01")) hex = hex.drop(2)
+        val bytes = ElmProtocol.hexToBytes(hex) ?: return null
+        val text = buildString {
+            for (b in bytes) {
+                val c = b.toChar()
+                if (c in ' '..'~') append(c)
+            }
+        }.trim().trimEnd('\u0000')
+        return text.takeIf { it.length >= 4 }?.take(32)
+    }
+
+    fun fingerprint(supportedPids: Set<Int>, calid: String?): String {
+        val body = buildString {
+            supportedPids.sorted().forEach { append("%02X".format(it)) }
+            if (!calid.isNullOrBlank()) {
+                append(':')
+                append(calid)
+            }
+        }
+        return "ecu-${body.hashCode().toUInt().toString(16)}"
+    }
+}

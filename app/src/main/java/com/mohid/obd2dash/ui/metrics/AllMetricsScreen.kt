@@ -28,6 +28,7 @@ import com.mohid.obd2dash.obd.DerivedMetrics
 import com.mohid.obd2dash.obd.MetricSnapshot
 import com.mohid.obd2dash.obd.ObdPid
 import com.mohid.obd2dash.obd.PidGroup
+import com.mohid.obd2dash.obd.PidRegistry
 import com.mohid.obd2dash.ui.components.MetricCard
 import com.mohid.obd2dash.ui.components.zoneOf
 import com.mohid.obd2dash.ui.theme.Cyan
@@ -36,9 +37,9 @@ import com.mohid.obd2dash.ui.theme.TextMuted
 /**
  * Everything the ECU answers to, beyond the four on the main dial.
  *
- * The list is built from the runtime PID scan, not a fixed table. What a
- * Daihatsu KF-VET reports is not what the next car will, and a card showing a
- * permanent dash is worse than no card.
+ * The list is built from the runtime PID scan, not a fixed table. What one
+ * ECU reports is not what the next car will, and a card showing a permanent
+ * dash is worse than no card.
  */
 @Composable
 fun AllMetricsScreen(graph: AppGraph) {
@@ -47,13 +48,17 @@ fun AllMetricsScreen(graph: AppGraph) {
     val settings by graph.settingsStore.settings.collectAsStateWithLifecycle(AppSettings())
     val monitorStatus by graph.controller.monitorStatus.collectAsStateWithLifecycle()
     val troubleCodes by graph.controller.troubleCodes.collectAsStateWithLifecycle()
+    val turbo by graph.controller.turboCar.collectAsStateWithLifecycle()
 
     // Boost belongs with the primaries even though no ECU reports it directly.
-    val displayed = remember(supported) {
-        val withDerived = if (supported.any { it.key == "map" }) {
-            supported + DerivedMetrics.BOOST
-        } else {
-            supported
+    val displayed = remember(supported, turbo) {
+        val filtered = if (turbo) supported else supported.filter { it.key !in PidRegistry.turboSpecificKeys }
+        val withDerived = buildList {
+            addAll(filtered)
+            if (turbo && filtered.any { it.key == "map" }) add(DerivedMetrics.BOOST)
+            if (filtered.any { it.key == PidRegistry.MAF.key } || filtered.any { it.key == "fuelRate" }) {
+                add(DerivedMetrics.FUEL_ECONOMY)
+            }
         }
         withDerived.groupBy { it.group }.toSortedMap(compareBy { it.ordinal })
     }

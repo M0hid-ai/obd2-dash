@@ -12,6 +12,8 @@ import com.mohid.obd2dash.alerts.AlertSeverity
 import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.data.SettingsStore
 import com.mohid.obd2dash.data.TripRecorder
+import com.mohid.obd2dash.data.VehicleProfile
+import com.mohid.obd2dash.data.VehiclePrompt
 import com.mohid.obd2dash.data.db.AppDatabase
 import com.mohid.obd2dash.location.LocationTracker
 import com.mohid.obd2dash.obd.transport.BluetoothObdTransport
@@ -50,6 +52,10 @@ sealed interface TripState {
         val distanceMeters: Double,
         val sampleCount: Int,
         val startedManually: Boolean,
+        val fuelLitres: Double = 0.0,
+        val tripLPer100: Float? = null,
+        val instantLPer100: Float? = null,
+        val fuelSource: FuelSource? = null,
     ) : TripState
 }
 
@@ -168,6 +174,12 @@ class ObdController(
     private val _induction = MutableStateFlow(Induction.UNKNOWN)
     val induction: StateFlow<Induction> = _induction.asStateFlow()
 
+    private val _turboCar = MutableStateFlow(false)
+    val turboCar: StateFlow<Boolean> = _turboCar.asStateFlow()
+
+    private val _vehiclePrompt = MutableStateFlow<VehiclePrompt?>(null)
+    val vehiclePrompt: StateFlow<VehiclePrompt?> = _vehiclePrompt.asStateFlow()
+
     private val alertEngine = AlertEngine()
     private val recorder = TripRecorder(db)
 
@@ -179,12 +191,23 @@ class ObdController(
     @Volatile
     private var settings: AppSettings = AppSettings()
 
+    @Volatile
+    private var turboEnabled = false
+
+    private var vehicleCache = emptyMap<String, VehicleProfile>()
+    private var activeVehicle: VehicleIdentity.Info? = null
+
     init {
         scope.launch {
             settingsStore.settings.collect { latest ->
                 settings = latest
                 alertEngine.setRules(latest.thresholds)
                 _alerts.value = alertEngine.snapshot()
+            }
+        }
+        scope.launch {
+            settingsStore.vehicles.collect { list ->
+                vehicleCache = list.associateBy { it.identity }
             }
         }
         scope.launch { recorder.closeAbandonedTrip() }
@@ -207,6 +230,9 @@ class ObdController(
             _connection.value = ConnectionState.Disconnected
             _snapshot.value = MetricSnapshot.EMPTY
             _supportedPids.value = emptyList()
+            _vehiclePrompt.value = null
+            setTurbo(false)
+            activeVehicle = null
         }
     }
 
@@ -262,6 +288,23 @@ class ObdController(
         val supported = supportedNumbers.mapNotNull { PidRegistry.byPid(it) }
         _supportedPids.value = supported
         appendLog("ECU answers ${supported.size} known PIDs")
+
+        _connection.value = ConnectionState.Connecting("Identifying vehicle…")
+        val identity = newSession.readVehicleIdentity(supportedNumbers)
+        activeVehicle = identity
+        val known = vehicleCache[identity.identity]
+        if (known != null) {
+            setTurbo(known.turbo)
+            _vehiclePrompt.value = null
+            appendLog(
+                if (known.turbo) "Known turbo vehicle ${identity.vin ?: identity.identity}"
+                else "Known NA vehicle ${identity.vin ?: identity.identity}",
+            )
+        } else {
+            setTurbo(false)
+            _vehiclePrompt.value = VehiclePrompt(identity.identity, identity.vin)
+            appendLog("New vehicle ${identity.vin ?: identity.identity}, waiting for turbo/NA")
+        }
 
         session = newSession
         _connection.value = ConnectionState.Connected(
@@ -359,42 +402,36 @@ class ObdController(
         var sawEngineOff = true
 
         withContext(Dispatchers.IO) {
-            // Boost is MAP minus ambient, so it needs a barometric reference from
-            // the very first sample. Left to its slot in the 60 second rotation
-            // this PID can be two minutes away, and every reading until then is
-            // offset by the gap between real ambient and the sea-level fallback.
-            occasional.firstOrNull { it.key == PidRegistry.BAROMETRIC.key }?.let { baro ->
-                val now = System.currentTimeMillis()
-                readInto(active, baro, values, updatedAt, noDataCount, demoted, now)
-                lastBaroAt = now
+            if (turboEnabled) {
+                occasional.firstOrNull { it.key == PidRegistry.BAROMETRIC.key }?.let { baro ->
+                    val now = System.currentTimeMillis()
+                    readInto(active, baro, values, updatedAt, noDataCount, demoted, now)
+                    lastBaroAt = now
+                }
             }
 
             while (isActive) {
                 val cycleStart = SystemClock.elapsedRealtime()
                 val now = System.currentTimeMillis()
+                val turbo = turboEnabled
 
                 for (pid in fastTier) {
+                    if (!turbo && pid.key in PidRegistry.turboSpecificKeys) continue
                     if (!readInto(active, pid, values, updatedAt, noDataCount, demoted, now)) {
                         throw IOException("Adapter stopped responding")
                     }
                 }
 
-                // The long tail is round-robined into whatever time is left in
-                // the cycle after the gauges have been served. Reading exactly
-                // one per cycle wasted most of the budget on a quick link: a
-                // car answering 35 PIDs took half a minute to refresh them all,
-                // which is why the slow-tier trip charts came out as staircases
-                // rather than curves. Filling the budget instead refreshes the
-                // same list several times faster without ever pushing a cycle
-                // past the poll interval the gauges depend on.
-                val rotation = slowTier.filter { it.key !in demoted }
+                val rotation = ArrayList<ObdPid>(slowTier.size)
+                for (pid in slowTier) {
+                    if (pid.key in demoted) continue
+                    if (!turbo && pid.key in PidRegistry.turboSpecificKeys) continue
+                    rotation += pid
+                }
                 var slowReads = 0
                 if (rotation.isNotEmpty()) {
                     while (slowReads < MAX_SLOW_READS_PER_CYCLE) {
                         val elapsed = SystemClock.elapsedRealtime() - cycleStart
-                        // Always take the first one, however tight the budget:
-                        // a starved long tail is worse than a cycle that runs
-                        // slightly long.
                         val affordable = elapsed + readCostMs <= settings.pollIntervalMs
                         if (slowReads > 0 && !affordable) break
 
@@ -410,10 +447,13 @@ class ObdController(
                     }
                 }
 
-                // Barometric pressure tracks the weather, not the throttle.
                 if (now - lastBaroAt >= BARO_REFRESH_MS) {
                     lastBaroAt = now
-                    val slow = occasional.filter { it.key !in demoted }
+                    // Fuel level/type and the lifetime counters are useful on
+                    // every vehicle. Only barometric pressure is turbo-only.
+                    val slow = occasional.filter { pid ->
+                        pid.key !in demoted && (turbo || pid.key != PidRegistry.BAROMETRIC.key)
+                    }
                     if (slow.isNotEmpty()) {
                         val pid = slow[occasionalIndex % slow.size]
                         occasionalIndex++
@@ -421,8 +461,8 @@ class ObdController(
                     }
                 }
 
-                applyDerivedMetrics(values, updatedAt, now)
-                detectInduction(values)
+                applyDerivedMetrics(values, updatedAt, now, turbo)
+                if (turbo) detectInduction(values)
 
                 val snapshot = MetricSnapshot(now, HashMap(values), HashMap(updatedAt))
                 _snapshot.value = snapshot
@@ -484,6 +524,9 @@ class ObdController(
             _connection.value = ConnectionState.Disconnected
             _snapshot.value = MetricSnapshot.EMPTY
             _supportedPids.value = emptyList()
+            _vehiclePrompt.value = null
+            setTurbo(false)
+            activeVehicle = null
         }
     }
 
@@ -549,11 +592,40 @@ class ObdController(
         values: MutableMap<String, Float>,
         updatedAt: MutableMap<String, Long>,
         now: Long,
+        turbo: Boolean,
     ) {
-        val map = values[PidRegistry.MAP.key] ?: return
-        val baro = values[PidRegistry.BAROMETRIC.key] ?: DerivedMetrics.DEFAULT_BAROMETRIC_KPA
-        values[DerivedMetrics.BOOST.key] = map - baro
-        updatedAt[DerivedMetrics.BOOST.key] = now
+        if (turbo) {
+            values[PidRegistry.MAP.key]?.let { map ->
+                val baro = values[PidRegistry.BAROMETRIC.key] ?: DerivedMetrics.DEFAULT_BAROMETRIC_KPA
+                values[DerivedMetrics.BOOST.key] = map - baro
+                updatedAt[DerivedMetrics.BOOST.key] = now
+            }
+        } else {
+            values.remove(DerivedMetrics.BOOST.key)
+            values.remove(PidRegistry.MAP.key)
+            values.remove(PidRegistry.BAROMETRIC.key)
+        }
+
+        val diesel = (values["fuelType"] ?: 1f) >= 4f
+        val ecuRate = values["fuelRate"]
+        if (ecuRate == null) {
+            values[PidRegistry.MAF.key]?.let { maf ->
+                val estimated = FuelEconomy.litresPerHourFromMaf(maf, diesel)
+                values[DerivedMetrics.FUEL_RATE_MAF.key] = estimated
+                updatedAt[DerivedMetrics.FUEL_RATE_MAF.key] = now
+            }
+        }
+        val litresPerHour = ecuRate ?: values[DerivedMetrics.FUEL_RATE_MAF.key]
+        val speed = values[PidRegistry.SPEED.key] ?: 0f
+        if (litresPerHour != null) {
+            val instant = FuelEconomy.litresPer100Km(litresPerHour, speed)
+            if (instant != null) {
+                values[DerivedMetrics.FUEL_ECONOMY.key] = instant
+                updatedAt[DerivedMetrics.FUEL_ECONOMY.key] = now
+            } else {
+                values.remove(DerivedMetrics.FUEL_ECONOMY.key)
+            }
+        }
     }
 
     /**
@@ -690,7 +762,51 @@ class ObdController(
         _trip.value = current.copy(
             distanceMeters = recorder.currentDistanceMeters,
             sampleCount = recorder.currentSampleCount,
+            fuelLitres = recorder.currentFuelLitres,
+            tripLPer100 = recorder.currentTripEconomy,
+            instantLPer100 = _snapshot.value[DerivedMetrics.FUEL_ECONOMY.key],
+            fuelSource = recorder.currentFuelSource,
         )
+    }
+
+    fun answerVehiclePrompt(turbo: Boolean) {
+        val prompt = _vehiclePrompt.value ?: return
+        val profile = VehicleProfile(
+            identity = prompt.identity,
+            vin = prompt.vin,
+            turbo = turbo,
+            labeledAt = System.currentTimeMillis(),
+        )
+        _vehiclePrompt.value = null
+        setTurbo(turbo)
+        scope.launch { settingsStore.rememberVehicle(profile) }
+        appendLog(if (turbo) "This car is turbocharged" else "This car is naturally aspirated")
+    }
+
+    fun setActiveVehicleTurbo(identity: String, turbo: Boolean) {
+        val info = activeVehicle ?: return
+        if (info.identity != identity) return
+        setTurbo(turbo)
+        scope.launch {
+            settingsStore.rememberVehicle(
+                VehicleProfile(
+                    identity = info.identity,
+                    vin = info.vin,
+                    turbo = turbo,
+                    labeledAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    private fun setTurbo(turbo: Boolean) {
+        turboEnabled = turbo
+        _turboCar.value = turbo
+        // The driver has explicitly classified this vehicle. This is more
+        // dependable than waiting for a boost event (a turbo driven gently
+        // would otherwise look naturally aspirated), and keeps the dial scale
+        // and poll plan in agreement immediately after the choice.
+        _induction.value = if (turbo) Induction.FORCED else Induction.NATURAL
     }
 
     // ---- Alerts & diagnostics ---------------------------------------------
@@ -710,6 +826,7 @@ class ObdController(
         _troubleCodes.value = emptyList()
         _monitorStatus.value = null
         _induction.value = Induction.UNKNOWN
+        _vehiclePrompt.value = null
     }
 
     fun acknowledgeAlert(metricKey: String) {

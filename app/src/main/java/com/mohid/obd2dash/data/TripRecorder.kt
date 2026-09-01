@@ -10,6 +10,8 @@ import com.mohid.obd2dash.data.db.TripEntity
 import com.mohid.obd2dash.data.db.TripMetricEntity
 import com.mohid.obd2dash.location.DistanceAccumulator
 import com.mohid.obd2dash.obd.DerivedMetrics
+import com.mohid.obd2dash.obd.FuelEconomy
+import com.mohid.obd2dash.obd.FuelSource
 import com.mohid.obd2dash.obd.MetricSnapshot
 import com.mohid.obd2dash.obd.PidRegistry
 import com.mohid.obd2dash.obd.DiagnosticCode
@@ -77,12 +79,23 @@ class TripRecorder(private val db: AppDatabase) {
     private var milOn = false
     private var readinessIncomplete: Int? = null
     private var readinessSupported: Int? = null
+    private var fuelLitres = 0.0
+    private var lastFuelAt = 0L
+    private var lastLph: Float? = null
+    private var fuelSource: FuelSource? = null
 
     val activeTripId: Long? get() = tripId
 
     val currentDistanceMeters: Double get() = distance.totalMeters
 
     val currentSampleCount: Int get() = sampleCount
+
+    val currentFuelLitres: Double get() = fuelLitres
+
+    val currentTripEconomy: Float?
+        get() = FuelEconomy.tripLitresPer100Km(fuelLitres, distance.totalMeters)
+
+    val currentFuelSource: FuelSource? get() = fuelSource
 
     suspend fun start(
         startedManually: Boolean,
@@ -163,13 +176,17 @@ class TripRecorder(private val db: AppDatabase) {
 
         sampleCount++
         obdSpeedKph = snapshot[PidRegistry.SPEED.key]
+        integrateFuel(snapshot)
         for ((key, value) in snapshot.values) {
             accumulators.getOrPut(key) { Accumulator() }.add(value)
         }
 
         val location = lastLocation
         // The four gauge metrics get real columns; the rest ride in the packed blob.
-        val extras = snapshot.values.filterKeys { it !in COLUMN_METRICS }
+        val extras = HashMap<String, Float>(snapshot.values.size)
+        for ((key, value) in snapshot.values) {
+            if (key !in COLUMN_METRICS) extras[key] = value
+        }
 
         buffer += ReadingEntity(
             tripId = id,
@@ -236,6 +253,9 @@ class TripRecorder(private val db: AppDatabase) {
                     dtcCount = pendingCodes.size,
                     readinessIncomplete = readinessIncomplete,
                     readinessSupported = readinessSupported,
+                    fuelLitres = fuelLitres.takeIf { it >= FuelEconomy.MIN_LITRES },
+                    fuelEconomyLPer100 = FuelEconomy.tripLitresPer100Km(fuelLitres, distance.totalMeters),
+                    fuelSource = fuelSource?.name,
                 ),
             )
         }
@@ -275,5 +295,32 @@ class TripRecorder(private val db: AppDatabase) {
         readinessIncomplete = null
         readinessSupported = null
         lastLocation = null
+        fuelLitres = 0.0
+        lastFuelAt = 0L
+        lastLph = null
+        fuelSource = null
+    }
+
+    /**
+     * Trapezoid integration of litres/hour against wall clock.
+     *
+     * Uses the ECU's own fuel-rate PID when it exists, otherwise the MAF
+     * estimate the poll loop already derived. Either way the sample is
+     * whatever the last cycle actually held — not an extra request.
+     */
+    private fun integrateFuel(snapshot: MetricSnapshot) {
+        val ecu = snapshot["fuelRate"]
+        val estimated = snapshot[DerivedMetrics.FUEL_RATE_MAF.key]
+        val lph = ecu ?: estimated ?: return
+        val source = if (ecu != null) FuelSource.ECU_RATE else FuelSource.MAF_ESTIMATE
+        if (fuelSource == null || source == FuelSource.ECU_RATE) fuelSource = source
+
+        val dtMs = snapshot.timestamp - lastFuelAt
+        if (lastFuelAt > 0L && lastLph != null && dtMs in 1..10_000) {
+            val hours = dtMs / 3_600_000.0
+            fuelLitres += ((lastLph!! + lph) / 2.0) * hours
+        }
+        lastFuelAt = snapshot.timestamp
+        lastLph = lph
     }
 }

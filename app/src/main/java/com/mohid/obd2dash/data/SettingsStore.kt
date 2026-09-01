@@ -146,6 +146,7 @@ class SettingsStore(private val context: Context) {
         val gaugeSkin = stringPreferencesKey("gaugeSkin")
         val gaugeAccent = stringPreferencesKey("gaugeAccent")
         val thresholds = stringSetPreferencesKey("thresholds")
+        val vehicles = stringSetPreferencesKey("vehicles")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -169,6 +170,25 @@ class SettingsStore(private val context: Context) {
                 ?: defaults.gaugeAccent,
             thresholds = mergeThresholds(prefs[Keys.thresholds]),
         )
+    }
+
+    val vehicles: Flow<List<VehicleProfile>> = context.settingsDataStore.data.map { prefs ->
+        prefs[Keys.vehicles].orEmpty().mapNotNull(VehicleProfile::deserialize)
+            .sortedByDescending { it.labeledAt }
+    }
+
+    suspend fun rememberVehicle(profile: VehicleProfile) = edit { prefs ->
+        val rest = prefs[Keys.vehicles].orEmpty()
+            .mapNotNull(VehicleProfile::deserialize)
+            .filter { it.identity != profile.identity }
+        prefs[Keys.vehicles] = (rest + profile).map { it.serialize() }.toSet()
+    }
+
+    suspend fun forgetVehicle(identity: String) = edit { prefs ->
+        val rest = prefs[Keys.vehicles].orEmpty()
+            .mapNotNull(VehicleProfile::deserialize)
+            .filter { it.identity != identity }
+        prefs[Keys.vehicles] = rest.map { it.serialize() }.toSet()
     }
 
     /**

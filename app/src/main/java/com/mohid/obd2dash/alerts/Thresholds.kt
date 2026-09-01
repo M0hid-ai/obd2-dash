@@ -62,7 +62,8 @@ data class ThresholdRule(
 }
 
 /**
- * Starting limits for a 2023 Daihatsu Move turbo (KF-VET, 660cc, CVT).
+ * Conservative starting limits for a typical OBD2 passenger vehicle. They are
+ * editable because the correct limits are engine- and driver-specific.
  *
  * These are picked to sit clear of that engine's normal operating envelope.
  * Coolant settles around 90 °C and peak boost is roughly 70 kPa, so a breach

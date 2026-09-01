@@ -213,6 +213,28 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
                             StatTile("Distance", "%.2f km".format(entity.distanceMeters / 1000))
                             StatTile("Samples", entity.sampleCount.toString())
                         }
+                        entity.fuelEconomyLPer100?.let { econ ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                StatTile("Fuel avg", "%.1f L/100 km".format(econ))
+                                StatTile(
+                                    "Used",
+                                    entity.fuelLitres?.let { "%.2f L".format(it) } ?: "—",
+                                )
+                                StatTile(
+                                    "Source",
+                                    when (entity.fuelSource) {
+                                        "ECU_RATE" -> "ECU"
+                                        "MAF_ESTIMATE" -> "MAF"
+                                        else -> "—"
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }

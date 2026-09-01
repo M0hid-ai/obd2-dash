@@ -59,6 +59,7 @@ import com.mohid.obd2dash.data.AppSettings
 import com.mohid.obd2dash.data.GaugeAccent
 import com.mohid.obd2dash.data.GaugeSkin
 import com.mohid.obd2dash.data.PressureUnit
+import com.mohid.obd2dash.data.VehicleProfile
 import com.mohid.obd2dash.obd.metricByKey
 import com.mohid.obd2dash.ui.components.GaugeZone
 import com.mohid.obd2dash.ui.components.MetricGauge
@@ -103,7 +104,7 @@ fun SettingsScreen(graph: AppGraph) {
             SettingsCard {
                 SwitchRow(
                     title = "Demo mode",
-                    subtitle = "Run against a simulated turbo engine instead of the adapter.",
+                    subtitle = "Run against a simulated engine instead of the adapter.",
                     checked = settings.demoMode,
                     onCheckedChange = { scope.launch { store.setDemoMode(it) } },
                 )
@@ -135,6 +136,20 @@ fun SettingsScreen(graph: AppGraph) {
                     onValueChange = { scope.launch { store.setPollIntervalMs(it.toInt()) } },
                 )
             }
+        }
+
+        item {
+            SectionLabel("Vehicles")
+        }
+        item {
+            Text(
+                "A new VIN (or ECU fingerprint, if Mode 09 is silent) asks whether the engine is turbocharged. Turbo PIDs are not polled on a naturally aspirated car.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+            )
+        }
+        item {
+            VehicleSettingsCard(graph)
         }
 
         item {
@@ -223,7 +238,7 @@ fun SettingsScreen(graph: AppGraph) {
         }
         item {
             Text(
-                "Defaults are set for a 2023 Move turbo. Leave a field empty to stop checking that bound.",
+                "Defaults are conservative generic OBD2 values. Leave a field empty to stop checking that bound.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
             )
@@ -558,6 +573,63 @@ private fun RowDivider() {
             .fillMaxWidth()
             .height(1.dp),
     ) {}
+}
+
+@Composable
+private fun VehicleSettingsCard(graph: AppGraph) {
+    val vehicles by graph.settingsStore.vehicles.collectAsStateWithLifecycle(emptyList())
+    val scope = rememberCoroutineScope()
+    SettingsCard {
+        if (vehicles.isEmpty()) {
+            Text(
+                "No vehicles stored yet. Connect once and you will be asked turbo or naturally aspirated.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+                modifier = Modifier.padding(14.dp),
+            )
+        } else {
+            vehicles.forEachIndexed { index, vehicle ->
+                if (index > 0) RowDivider()
+                VehicleRow(
+                    vehicle = vehicle,
+                    onTurboChange = { turbo ->
+                        scope.launch {
+                            graph.settingsStore.rememberVehicle(vehicle.copy(turbo = turbo, labeledAt = System.currentTimeMillis()))
+                            graph.controller.setActiveVehicleTurbo(vehicle.identity, turbo)
+                        }
+                    },
+                    onForget = { scope.launch { graph.settingsStore.forgetVehicle(vehicle.identity) } },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VehicleRow(
+    vehicle: VehicleProfile,
+    onTurboChange: (Boolean) -> Unit,
+    onForget: () -> Unit,
+) {
+    Column(Modifier.padding(14.dp)) {
+        Text(
+            vehicle.vin ?: vehicle.identity,
+            style = MaterialTheme.typography.bodyLarge,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            if (vehicle.vin != null) "VIN" else "ECU fingerprint (no VIN from this adapter)",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+        )
+        SwitchRow(
+            title = "Turbocharged",
+            subtitle = "Poll MAP and show the boost dial. Off skips those PIDs.",
+            checked = vehicle.turbo,
+            onCheckedChange = onTurboChange,
+        )
+        TextButton(onClick = onForget) { Text("Forget this vehicle", color = TextMuted) }
+    }
 }
 
 @Composable
