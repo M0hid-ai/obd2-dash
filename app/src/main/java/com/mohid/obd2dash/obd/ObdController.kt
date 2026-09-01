@@ -210,6 +210,9 @@ class ObdController(
     private var turboEnabled = false
 
     private var vehicleCache = emptyMap<String, VehicleProfile>()
+
+    /** Everything the support bitmask claimed, decodable by this app or not. */
+    private var advertisedPidCount = 0
     private var activeVehicle: VehicleIdentity.Info? = null
 
     init {
@@ -302,6 +305,10 @@ class ObdController(
         }
         val supported = supportedNumbers.mapNotNull { PidRegistry.byPid(it) }
         _supportedPids.value = supported
+        // Kept separately from the decoded list: the difference between the two
+        // is how much of this ECU the app cannot read yet, which is worth
+        // reporting rather than hiding.
+        advertisedPidCount = supportedNumbers.size
         appendLog("ECU answers ${supported.size} known PIDs")
 
         _connection.value = ConnectionState.Connecting("Identifying vehicle…")
@@ -820,6 +827,8 @@ class ObdController(
             // Snapshotted now, not resolved at read time: renaming a car later
             // should not retitle drives already in the history.
             vehicleName = profile?.takeIf { it.isNamed }?.displayName,
+            advertisedPids = advertisedPidCount,
+            decodableKeys = _supportedPids.value.mapTo(HashSet()) { it.key },
         )
         _trip.value = TripState.Recording(
             tripId = id,

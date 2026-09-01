@@ -85,6 +85,8 @@ class TripRecorder(private val db: AppDatabase) {
     private var fuelSource: FuelSource? = null
     private var idleStopCount = 0
     private var idleStopMs = 0L
+    private var pidsAdvertised = 0
+    private var expectedKeys: Set<String> = emptySet()
 
     val activeTripId: Long? get() = tripId
 
@@ -124,9 +126,13 @@ class TripRecorder(private val db: AppDatabase) {
         protocol: String?,
         vehicleIdentity: String? = null,
         vehicleName: String? = null,
+        advertisedPids: Int = 0,
+        decodableKeys: Set<String> = emptySet(),
         now: Long = System.currentTimeMillis(),
     ): Long {
         reset()
+        pidsAdvertised = advertisedPids
+        expectedKeys = decodableKeys
         startedAt = now
         lastFlushAt = now
         // Numbered per car rather than globally, so "Move 2023 trip 12" means
@@ -143,6 +149,8 @@ class TripRecorder(private val db: AppDatabase) {
                 vehicleIdentity = vehicleIdentity,
                 vehicleName = vehicleName,
                 vehicleTripNumber = number,
+                pidsAdvertised = advertisedPids,
+                pidsKnown = decodableKeys.size,
             ),
         )
         tripId = id
@@ -286,6 +294,16 @@ class TripRecorder(private val db: AppDatabase) {
                     readinessSupported = readinessSupported,
                     idleStopCount = idleStopCount,
                     idleStopMs = idleStopMs,
+                    pidsAdvertised = pidsAdvertised,
+                    pidsKnown = expectedKeys.size,
+                    // An accumulator only exists for a key that produced a
+                    // value, so its key set is exactly what actually arrived.
+                    pidsReceived = expectedKeys
+                        .filter { (accumulators[it]?.count ?: 0) > 0 }
+                        .joinToString(";"),
+                    pidsMissing = expectedKeys
+                        .filter { (accumulators[it]?.count ?: 0) == 0 }
+                        .joinToString(";"),
                     fuelLitres = fuelLitres.takeIf { it >= FuelEconomy.MIN_LITRES },
                     fuelEconomyLPer100 = FuelEconomy.tripLitresPer100Km(fuelLitres, distance.totalMeters),
                     fuelSource = fuelSource?.name,
@@ -334,6 +352,8 @@ class TripRecorder(private val db: AppDatabase) {
         fuelSource = null
         idleStopCount = 0
         idleStopMs = 0L
+        pidsAdvertised = 0
+        expectedKeys = emptySet()
     }
 
     /**

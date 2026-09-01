@@ -50,7 +50,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.sp
 import com.mohid.obd2dash.AppGraph
 import com.mohid.obd2dash.data.ExportFormat
+import com.mohid.obd2dash.data.db.TripEntity
 import com.mohid.obd2dash.data.db.title
+import com.mohid.obd2dash.obd.metricByKey
 import com.mohid.obd2dash.data.SeriesPoint
 import com.mohid.obd2dash.data.db.TripMetricEntity
 import com.mohid.obd2dash.obd.metricByKey
@@ -65,6 +67,7 @@ import com.mohid.obd2dash.ui.theme.Panel
 import com.mohid.obd2dash.ui.theme.PanelRaised
 import com.mohid.obd2dash.ui.theme.TextMuted
 import com.mohid.obd2dash.ui.theme.ZoneDanger
+import com.mohid.obd2dash.ui.theme.ZoneGood
 import com.mohid.obd2dash.ui.theme.ZoneWarn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -259,6 +262,11 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
                 }
             }
 
+            trip?.takeIf { it.pidsKnown > 0 }?.let { entity ->
+                SectionLabel("PID coverage")
+                PidCoverageCard(entity)
+            }
+
             if (dtcs.isNotEmpty() || trip?.milOn == true) {
                 DtcCard(
                     codes = dtcs.map { it.code to it.kind },
@@ -376,6 +384,76 @@ private fun SummaryTable(summaries: List<TripMetricEntity>) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * What this ECU and this adapter were actually able to deliver.
+ *
+ * Three numbers that mean three different things. Advertised is what the
+ * support bitmask claimed. Decoded is how much of that this app has a decoder
+ * for, so the gap there is the app's limit and nobody else's. Received is what
+ * turned up over the whole drive, and anything advertised but never received is
+ * the ECU or the adapter promising something it did not deliver - the usual
+ * signature of a cheap clone, or of a PID a car lists but never populates.
+ */
+@Composable
+private fun PidCoverageCard(trip: TripEntity) {
+    val received = trip.pidsReceived.split(';').filter { it.isNotBlank() }
+    val missing = trip.pidsMissing.split(';').filter { it.isNotBlank() }
+    Surface(color = PanelRaised, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                StatTile("Advertised", trip.pidsAdvertised.toString())
+                StatTile("Decoded", trip.pidsKnown.toString())
+                StatTile("Received", received.size.toString())
+            }
+            if (trip.pidsAdvertised > trip.pidsKnown) {
+                Text(
+                    "${trip.pidsAdvertised - trip.pidsKnown} PIDs this ECU offers have no decoder in the app yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+            if (missing.isEmpty()) {
+                Text(
+                    "Everything the ECU advertised and the app understands answered at least once.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ZoneGood,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            } else {
+                Text(
+                    "Advertised but silent all trip",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ZoneWarn,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Text(
+                    missing.joinToString(", ") { metricByKey(it)?.shortLabel ?: it },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            if (received.isNotEmpty()) {
+                Text(
+                    "Logged",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Text(
+                    received.joinToString(", ") { metricByKey(it)?.shortLabel ?: it },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }

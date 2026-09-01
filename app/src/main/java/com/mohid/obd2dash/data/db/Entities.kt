@@ -32,6 +32,19 @@ data class TripEntity(
     val vehicleName: String? = null,
     /** Nth trip for this particular car, counted from one. */
     val vehicleTripNumber: Int = 0,
+    /**
+     * How many Mode 01 PIDs the ECU advertised in its support bitmask,
+     * including the ones this app has no decoder for. The gap between this and
+     * [pidsKnown] is the app's limitation; the gap between [pidsKnown] and what
+     * [pidsReceived] holds is the ECU or the adapter failing to deliver.
+     */
+    val pidsAdvertised: Int = 0,
+    /** Of those, how many this app can actually decode. */
+    val pidsKnown: Int = 0,
+    /** Semicolon separated metric keys that produced at least one reading. */
+    val pidsReceived: String = "",
+    /** Advertised and decodable, but silent for the whole trip. */
+    val pidsMissing: String = "",
     val milOn: Boolean = false,
     val dtcCount: Int = 0,
     /**

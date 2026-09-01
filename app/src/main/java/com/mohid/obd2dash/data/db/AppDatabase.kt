@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TripMetricEntity::class,
         DtcEventEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -66,12 +66,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Records what the ECU offered against what actually arrived. */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE trips ADD COLUMN pidsAdvertised INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE trips ADD COLUMN pidsKnown INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE trips ADD COLUMN pidsReceived TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE trips ADD COLUMN pidsMissing TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, NAME)
                 // Readings are written in batches while driving; WAL keeps those
                 // writes from blocking the UI's reads.
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }
