@@ -98,13 +98,17 @@ object TripBriefing {
             for (metric in data.metrics.sortedBy { it.metricKey }) {
                 val pid = metricByKey(metric.metricKey)
                 val unit = pid?.unit.orEmpty()
+                // The unit is appended rather than interpolated into the
+                // format string: several of them are literally "%", which
+                // would be read as a conversion and blow up the formatter.
+                val figures = "%.1f / %.1f / %.1f".format(
+                    metric.minValue,
+                    metric.avgValue,
+                    metric.maxValue,
+                )
                 appendLine(
                     "- ${pid?.label ?: metric.metricKey}: " +
-                        "%.1f / %.1f / %.1f $unit".format(
-                            metric.minValue,
-                            metric.avgValue,
-                            metric.maxValue,
-                        ).trim() +
+                        "$figures $unit".trim() +
                         " over ${metric.sampleCount} samples",
                 )
             }
