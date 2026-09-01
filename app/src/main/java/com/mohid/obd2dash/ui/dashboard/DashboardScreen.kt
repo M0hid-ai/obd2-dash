@@ -129,6 +129,7 @@ fun DashboardScreen(
             vehiclePrompt?.let { prompt ->
                 NewVehicleDialog(
                     vin = prompt.vin,
+                    label = prompt.label,
                     onTurbo = { graph.controller.answerVehiclePrompt(true) },
                     onNaturallyAspirated = { graph.controller.answerVehiclePrompt(false) },
                 )
@@ -467,19 +468,23 @@ private fun TripControls(
 @Composable
 private fun NewVehicleDialog(
     vin: String?,
+    label: String?,
     onTurbo: () -> Unit,
     onNaturallyAspirated: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = {},
-        title = { Text("New vehicle") },
+        title = { Text(label ?: "New vehicle") },
         text = {
             Column {
                 Text(
-                    if (vin != null) {
-                        "This ECU has not been seen on this phone before. VIN $vin."
-                    } else {
-                        "This ECU has not been seen on this phone before. The adapter could not read a VIN, so it will be recognised by the PIDs it answers."
+                    when {
+                        label != null && vin != null ->
+                            "New to this phone, and the VIN reads as a $label. VIN $vin."
+                        vin != null ->
+                            "This ECU has not been seen on this phone before. VIN $vin."
+                        else ->
+                            "This ECU has not been seen on this phone before. The adapter could not read a VIN, so it will be recognised by the PIDs it answers."
                     },
                 )
                 Text(

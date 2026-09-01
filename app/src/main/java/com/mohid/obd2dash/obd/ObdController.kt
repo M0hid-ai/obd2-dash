@@ -317,8 +317,17 @@ class ObdController(
             )
         } else {
             setTurbo(false)
-            _vehiclePrompt.value = VehiclePrompt(identity.identity, identity.vin)
-            appendLog("New vehicle ${identity.vin ?: identity.identity}, waiting for turbo/NA")
+            val facts = VinDecoder.decode(identity.vin)
+            _vehiclePrompt.value = VehiclePrompt(
+                identity = identity.identity,
+                vin = identity.vin,
+                make = facts?.make,
+                modelYear = facts?.modelYear,
+            )
+            appendLog(
+                "New vehicle ${facts?.label ?: identity.vin ?: identity.identity}, " +
+                    "waiting for turbo/NA",
+            )
         }
 
         session = newSession
@@ -859,6 +868,8 @@ class ObdController(
             vin = prompt.vin,
             turbo = turbo,
             labeledAt = System.currentTimeMillis(),
+            make = prompt.make,
+            modelYear = prompt.modelYear,
         )
         _vehiclePrompt.value = null
         setTurbo(turbo)
@@ -870,14 +881,32 @@ class ObdController(
         val info = activeVehicle ?: return
         if (info.identity != identity) return
         setTurbo(turbo)
+        val facts = VinDecoder.decode(info.vin)
         scope.launch {
+            // Carries the existing name across rather than rebuilding the
+            // profile from scratch: toggling turbo must not erase a model the
+            // driver typed in.
+            val existing = vehicleCache[identity]
             settingsStore.rememberVehicle(
                 VehicleProfile(
                     identity = info.identity,
                     vin = info.vin,
                     turbo = turbo,
                     labeledAt = System.currentTimeMillis(),
+                    make = existing?.make ?: facts?.make,
+                    modelYear = existing?.modelYear ?: facts?.modelYear,
+                    model = existing?.model,
                 ),
+            )
+        }
+    }
+
+    /** Saves the model name the driver typed for a car already on file. */
+    fun setVehicleModel(identity: String, model: String) {
+        val existing = vehicleCache[identity] ?: return
+        scope.launch {
+            settingsStore.rememberVehicle(
+                existing.copy(model = model.trim().ifBlank { null }),
             )
         }
     }

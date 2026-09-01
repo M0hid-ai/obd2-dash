@@ -598,6 +598,7 @@ private fun VehicleSettingsCard(graph: AppGraph) {
                             graph.controller.setActiveVehicleTurbo(vehicle.identity, turbo)
                         }
                     },
+                    onModelChange = { graph.controller.setVehicleModel(vehicle.identity, it) },
                     onForget = { scope.launch { graph.settingsStore.forgetVehicle(vehicle.identity) } },
                 )
             }
@@ -609,12 +610,18 @@ private fun VehicleSettingsCard(graph: AppGraph) {
 private fun VehicleRow(
     vehicle: VehicleProfile,
     onTurboChange: (Boolean) -> Unit,
+    onModelChange: (String) -> Unit,
     onForget: () -> Unit,
 ) {
     Column(Modifier.padding(14.dp)) {
         Text(
+            vehicle.displayName,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
             vehicle.vin ?: vehicle.identity,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
             fontFamily = FontFamily.Monospace,
         )
         Text(
@@ -622,6 +629,22 @@ private fun VehicleRow(
             style = MaterialTheme.typography.bodySmall,
             color = TextMuted,
         )
+        // The maker and year come off the VIN. The model does not exist in any
+        // published form, so it is asked for once and then reused everywhere.
+        var model by remember(vehicle.identity) { mutableStateOf(vehicle.model.orEmpty()) }
+        OutlinedTextField(
+            value = model,
+            onValueChange = { model = it },
+            label = { Text("Model") },
+            placeholder = { Text("Move, Civic, Corolla…") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+        )
+        if (model.trim() != vehicle.model.orEmpty()) {
+            TextButton(onClick = { onModelChange(model) }) { Text("Save name") }
+        }
         SwitchRow(
             title = "Turbocharged",
             subtitle = "Poll MAP and show the boost dial. Off skips those PIDs.",
