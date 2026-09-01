@@ -164,7 +164,7 @@ object FuelEconomy {
  */
 enum class FuelUnit(val label: String, val blurb: String) {
     KM_PER_LITRE("km/L", "Distance per litre. Higher is better."),
-    L_PER_100KM("L/100 km", "Litres per hundred kilometres. Lower is better."),
+    L_PER_100KM("L/100km", "Litres per hundred kilometres. Lower is better."),
 }
 
 enum class FuelSource(val label: String) {
