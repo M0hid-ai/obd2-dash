@@ -389,6 +389,13 @@ private fun TripControls(
                                 color = ZoneGood,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            trip.vehicleName?.let { name ->
+                                Text(
+                                    name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                             Text(
                                 if (trip.startedManually) "Started manually" else "Started automatically",
                                 style = MaterialTheme.typography.bodySmall,

@@ -55,6 +55,8 @@ sealed interface TripState {
         val distanceMeters: Double,
         val sampleCount: Int,
         val startedManually: Boolean,
+        /** The car this drive is being recorded against, when it has a name. */
+        val vehicleName: String? = null,
         val fuelLitres: Double = 0.0,
         val tripLPer100: Float? = null,
         val fuelSource: FuelSource? = null,
@@ -879,6 +881,7 @@ class ObdController(
             distanceMeters = 0.0,
             sampleCount = 0,
             startedManually = manual,
+            vehicleName = profile?.takeIf { it.isNamed }?.displayName,
         )
         startLocationUpdates()
         appendLog("Trip $id started")
