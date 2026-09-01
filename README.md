@@ -140,20 +140,27 @@ angle, needle length, whether there is a needle at all, and where the number sit
 what actually makes two dials read as different instruments rather than the same instrument in a
 different paint scheme.
 
-| Face | Modelled on | What's different |
-|---|---|---|
-| Original | — | The dial this app shipped with: thick lit track, redline printed outside it, short blade needle. |
-| Hexa | Lamborghini Aventador cluster | Hexagonal bezel, wedge graduations that taper inward, hard edged sweep with no rounded caps anywhere. |
-| Heritage — Steel | Porsche 911 five dial cluster | Brushed metal bezel, numerals printed on a black face, full length needle with a counterweight. |
-| Heritage — Gunmetal | same, dark finish | Same traditional dial, dark and almost matte instead of shiny. |
-| Heritage — Titanium | same, cool finish | Same dial again, cooler and lighter with a faint blue cast. |
-| Heritage — Carbon | same, woven finish | Same dial with a woven carbon fibre bezel under a glossy clear coat. |
-| Cockpit | Audi virtual cockpit | One hairline ring, a puck for a pointer, a very large number. Everything that is not information is gone. |
-| Circuit | GT-R and race car shift displays | A segmented shift bar bent into an arc, with a peak hold marker that catches a spike before you could look down and see it. |
+Every face below is the real thing, captured from the picker in Settings with the tachometer
+held at the same 4200 rpm so they can be compared like for like.
+
+| | Face | Modelled on | What's different |
+|---|---|---|---|
+| <img src="docs/screenshots/gauges/original.png" width="150" alt="Original gauge face" /> | **Original** | &mdash; | The dial this app shipped with: thick lit track, redline printed outside it, short blade needle. |
+| <img src="docs/screenshots/gauges/hexa.png" width="150" alt="Hexa gauge face" /> | **Hexa** | Lamborghini Aventador cluster | Hexagonal bezel, wedge graduations that taper inward, hard edged sweep with no rounded caps anywhere. |
+| <img src="docs/screenshots/gauges/steel.png" width="150" alt="Heritage - Steel gauge face" /> | **Heritage &mdash; Steel** | Porsche 911 five dial cluster | Brushed metal bezel, numerals printed on a black face, full length needle with a counterweight. |
+| <img src="docs/screenshots/gauges/gunmetal.png" width="150" alt="Heritage - Gunmetal gauge face" /> | **Heritage &mdash; Gunmetal** | same, dark finish | Same traditional dial, dark and almost matte instead of shiny. |
+| <img src="docs/screenshots/gauges/titanium.png" width="150" alt="Heritage - Titanium gauge face" /> | **Heritage &mdash; Titanium** | same, cool finish | Same dial again, cooler and lighter with a faint blue cast. |
+| <img src="docs/screenshots/gauges/carbon.png" width="150" alt="Heritage - Carbon gauge face" /> | **Heritage &mdash; Carbon** | same, woven finish | Same dial with a woven carbon fibre bezel under a glossy clear coat. |
+| <img src="docs/screenshots/gauges/cockpit.png" width="150" alt="Cockpit gauge face" /> | **Cockpit** | Audi virtual cockpit | One hairline ring, a puck for a pointer, a very large number. Everything that is not information is gone. |
+| <img src="docs/screenshots/gauges/circuit.png" width="150" alt="Circuit gauge face" /> | **Circuit** | GT-R and race car shift displays | A segmented shift bar bent into an arc, with a peak hold marker that catches a spike before you could look down and see it. |
 
 Pick a favourite in Settings, or leave it on **Compare all** and it hands out a different face per
 dial, paired to the metric it suits: Hexa on the tachometer, Heritage on road speed, Cockpit on
-coolant, Circuit on boost.
+coolant, Circuit on boost. All four at once, on live data:
+
+<div align="center">
+<img src="docs/screenshots/compare-all.png" width="300" alt="Compare all: Hexa on RPM, Heritage on speed, Cockpit on coolant, Circuit on boost" />
+</div>
 
 A healthy-band accent colour sits alongside the face picker. It only recolours the "everything is
 fine" band, deliberately: warning stays amber and danger stays red regardless of what is picked, so
