@@ -11,6 +11,9 @@ import com.mohid.obd2dash.obd.DtcCatalog
 import com.mohid.obd2dash.obd.PidRegistry
 import com.mohid.obd2dash.obd.metricByKey
 import kotlinx.coroutines.Dispatchers
+import com.mohid.obd2dash.obd.FuelEconomy
+import com.mohid.obd2dash.obd.FuelUnit
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
@@ -46,6 +49,7 @@ enum class ExportFormat(val label: String, val blurb: String) {
 class TripExporter(
     private val context: Context,
     private val repository: TripRepository,
+    private val settingsStore: SettingsStore,
 ) {
 
     private companion object {
@@ -79,10 +83,13 @@ class TripExporter(
     suspend fun export(tripId: Long, format: ExportFormat): ExportedFile? =
         withContext(Dispatchers.IO) {
             val data = repository.snapshotForExport(tripId) ?: return@withContext null
+            // Read once per export rather than held: a report is a snapshot of
+            // how the app was set up at the moment it was produced.
+            val fuelUnit = settingsStore.settings.first().fuelUnit
             val zoned = Instant.ofEpochMilli(data.trip.startedAt).atZone(ZoneId.systemDefault())
             val base = "trip-$tripId-${fileStamp.format(zoned)}"
             when (format) {
-                ExportFormat.REPORT -> write("$base.html", "text/html", buildHtml(data))
+                ExportFormat.REPORT -> write("$base.html", "text/html", buildHtml(data, fuelUnit))
                 ExportFormat.CSV -> write("$base.csv", "text/csv", buildCsv(data))
             }
         }
@@ -142,7 +149,7 @@ class TripExporter(
 
     // ---- HTML report -------------------------------------------------------
 
-    private fun buildHtml(data: TripExportData): String {
+    private fun buildHtml(data: TripExportData, fuelUnit: FuelUnit): String {
         val trip = data.trip
         val started = Instant.ofEpochMilli(trip.startedAt).atZone(ZoneId.systemDefault())
         val sb = StringBuilder(32_000)
@@ -165,7 +172,7 @@ class TripExporter(
         tile(sb, "Distance", "%.2f km".format(Locale.UK, trip.distanceMeters / 1000))
         tile(sb, "Samples", trip.sampleCount.toString())
         trip.fuelEconomyLPer100?.let {
-            tile(sb, "Fuel average", "%.1f L/100 km".format(Locale.UK, it))
+            tile(sb, "Fuel average", FuelEconomy.format(it, fuelUnit))
         }
         trip.fuelLitres?.let {
             tile(sb, "Fuel used", "%.2f L".format(Locale.UK, it))

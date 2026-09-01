@@ -41,7 +41,7 @@ class AppGraph(context: Context) {
 
     val tripRepository: TripRepository by lazy { TripRepository(database) }
 
-    val tripExporter: TripExporter by lazy { TripExporter(appContext, tripRepository) }
+    val tripExporter: TripExporter by lazy { TripExporter(appContext, tripRepository, settingsStore) }
 
     val tripAnalyst: TripAnalyst by lazy { TripAnalyst() }
 

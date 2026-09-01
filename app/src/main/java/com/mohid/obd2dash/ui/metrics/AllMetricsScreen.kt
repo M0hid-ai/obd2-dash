@@ -28,6 +28,8 @@ import com.mohid.obd2dash.obd.DerivedMetrics
 import com.mohid.obd2dash.obd.MetricSnapshot
 import com.mohid.obd2dash.obd.ObdPid
 import com.mohid.obd2dash.obd.PidGroup
+import com.mohid.obd2dash.obd.FuelEconomy
+import com.mohid.obd2dash.obd.FuelUnit
 import com.mohid.obd2dash.obd.PidRegistry
 import com.mohid.obd2dash.ui.components.MetricCard
 import com.mohid.obd2dash.ui.components.zoneOf
@@ -108,16 +110,29 @@ private fun MetricCardFor(pid: ObdPid, snapshot: MetricSnapshot, settings: AppSe
     // few seconds is dimmed rather than silently presented as current.
     val stale = (snapshot.ageOf(pid.key) ?: 0L) > 8_000L
 
+    // Fuel economy is stored and thresholded in L/100 km but shown in whichever
+    // direction was picked. The zone still comes from the stored value, so the
+    // colour keeps meaning the same thing after the scale is flipped.
+    val asKmPerLitre = pid.key == DerivedMetrics.FUEL_ECONOMY.key &&
+        settings.fuelUnit == FuelUnit.KM_PER_LITRE
+    val shown = if (asKmPerLitre) value?.let { FuelEconomy.kmPerLitre(it) } else value
+    val shownMax = if (asKmPerLitre) KM_PER_LITRE_CEILING else pid.displayMax
+    val shownMin = if (asKmPerLitre) 0f else pid.displayMin
+    val shownSpan = (shownMax - shownMin).takeIf { it > 0f } ?: span
+
     MetricCard(
         label = pid.shortLabel,
-        value = value?.let { pid.format(it) } ?: "--",
-        unit = pid.unit,
-        fraction = value?.let { ((it - pid.displayMin) / span) },
+        value = shown?.let { if (asKmPerLitre) "%.1f".format(it) else pid.format(it) } ?: "--",
+        unit = if (asKmPerLitre) FuelUnit.KM_PER_LITRE.label else pid.unit,
+        fraction = shown?.let { ((it - shownMin) / shownSpan) },
         zone = zoneOf(value, rule),
         stale = stale && value != null,
         modifier = Modifier.fillMaxWidth(),
     )
 }
+
+/** Top of the km/L bar. Nothing on four wheels does better than this. */
+private const val KM_PER_LITRE_CEILING = 40f
 
 @Composable
 private fun GroupHeader(group: PidGroup, count: Int) {
