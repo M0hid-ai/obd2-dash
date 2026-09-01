@@ -34,6 +34,13 @@ data class TripEntity(
      */
     val readinessIncomplete: Int? = null,
     val readinessSupported: Int? = null,
+    /**
+     * Stop/start cuts during this trip, and how long the engine spent off
+     * across all of them. Zero on a car without the feature, or with it
+     * switched off, which is itself worth being able to see on the report.
+     */
+    val idleStopCount: Int = 0,
+    val idleStopMs: Long = 0,
     /** Litres burned this trip. Null when the ECU never gave a usable fuel signal. */
     val fuelLitres: Double? = null,
     /** Trip average, L/100 km. Null when the drive was too short to be meaningful. */

@@ -235,6 +235,25 @@ fun TripDetailScreen(graph: AppGraph, tripId: Long, onBack: () -> Unit) {
                                 )
                             }
                         }
+                        if (entity.idleStopCount > 0) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                StatTile("Idle stops", entity.idleStopCount.toString())
+                                StatTile("Engine off", formatElapsed(entity.idleStopMs))
+                                StatTile(
+                                    "Of trip",
+                                    if (entity.durationMs > 0) {
+                                        "%.0f%%".format(entity.idleStopMs * 100.0 / entity.durationMs)
+                                    } else {
+                                        "—"
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }

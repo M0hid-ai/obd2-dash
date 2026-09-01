@@ -135,6 +135,21 @@ class ObdController(
         /** After this much engine-off time, give up the link entirely. */
         const val IDLE_DISCONNECT_MS = 300_000L
 
+        /**
+         * How long an idle stop is allowed to run before it stops being an
+         * idle stop. Nothing with a working starter sits at a light for ten
+         * minutes, so past this the car is parked with the ignition on and the
+         * trip should close like any other.
+         */
+        const val IDLE_STOP_MAX_MS = 600_000L
+
+        /**
+         * An idle stop shorter than this is a dropped frame or a stall on the
+         * restart, not the stop/start system doing its job. Counting those
+         * would inflate the tally on every car that hiccups once.
+         */
+        const val IDLE_STOP_MIN_MS = 1_500L
+
         /** Above this the engine is turning. Cranking and noise sit below it. */
         const val RUNNING_RPM = 50f
         const val MAX_RECONNECT_ATTEMPTS = 3
@@ -396,6 +411,9 @@ class ObdController(
         var readCostMs = INITIAL_READ_COST_MS
         var engineOffSince: Long? = null
         var idleShutdown = false
+        // True while the engine is off but the ECU is still answering, which
+        // is what separates a stop/start cut from the ignition being turned off.
+        var idleStopping = false
         // Edge triggered: a trip begins when the engine *starts*, not merely
         // whenever it happens to be running. Otherwise pressing Stop mid-drive
         // would open a fresh trip on the very next cycle.
@@ -471,30 +489,67 @@ class ObdController(
                 recorder.record(snapshot)
                 publishTripProgress()
 
-                if (isEngineRunning(values)) {
-                    engineOffSince = null
-                    if (sawEngineOff) {
-                        sawEngineOff = false
-                        if (recorder.activeTripId == null && settings.autoStartTripOnConnect) {
-                            val state = _connection.value as? ConnectionState.Connected
-                            beginTrip(false, state?.adapter, state?.transportName)
+                when (engineState(values, updatedAt, now)) {
+                    EngineState.RUNNING -> {
+                        engineOffSince?.let { stoppedAt ->
+                            val stoppedFor = now - stoppedAt
+                            // The engine came back on its own with the ECU
+                            // never having gone quiet, which is stop/start
+                            // doing exactly what it exists to do.
+                            if (idleStopping && stoppedFor >= IDLE_STOP_MIN_MS) {
+                                recorder.onIdleStop(stoppedFor)
+                                appendLog("Idle stop of ${stoppedFor / 1000}s ended")
+                            }
+                        }
+                        engineOffSince = null
+                        idleStopping = false
+                        if (sawEngineOff) {
+                            sawEngineOff = false
+                            if (recorder.activeTripId == null && settings.autoStartTripOnConnect) {
+                                val state = _connection.value as? ConnectionState.Connected
+                                beginTrip(false, state?.adapter, state?.transportName)
+                            }
                         }
                     }
-                } else {
-                    sawEngineOff = true
-                    val since = engineOffSince ?: now.also { engineOffSince = it }
-                    val stoppedFor = now - since
-                    // Ending on engine-off belongs to the same setting that
-                    // starts on engine-on. With it off the driver owns both
-                    // ends, and the idle shutdown below is the only backstop.
-                    val autoEnd = settings.autoStartTripOnConnect && recorder.activeTripId != null
-                    if (stoppedFor >= ENGINE_OFF_GRACE_MS && autoEnd) {
-                        appendLog("Engine stopped, ending trip")
-                        endTripIfRunning()
+
+                    EngineState.IDLE_STOP -> {
+                        // Engine off, ECU wide awake. Holding the trip open is
+                        // the whole point: a commute is one drive even if the
+                        // car switched itself off at nine sets of lights.
+                        val since = engineOffSince ?: now.also { engineOffSince = it }
+                        val stoppedFor = now - since
+                        idleStopping = true
+                        if (stoppedFor >= IDLE_STOP_MAX_MS) {
+                            sawEngineOff = true
+                            idleStopping = false
+                            if (settings.autoStartTripOnConnect && recorder.activeTripId != null) {
+                                appendLog("Idle stop ran past ${IDLE_STOP_MAX_MS / 60_000} minutes, ending trip")
+                                endTripIfRunning()
+                            }
+                            idleShutdown = true
+                            return@withContext
+                        }
                     }
-                    if (stoppedFor >= IDLE_DISCONNECT_MS) {
-                        idleShutdown = true
-                        return@withContext
+
+                    EngineState.UNKNOWN -> {
+                        // Reads stopped coming back. On a car that is the key
+                        // being turned off, so the old grace period applies.
+                        sawEngineOff = true
+                        idleStopping = false
+                        val since = engineOffSince ?: now.also { engineOffSince = it }
+                        val stoppedFor = now - since
+                        // Ending on engine-off belongs to the same setting that
+                        // starts on engine-on. With it off the driver owns both
+                        // ends, and the idle shutdown below is the only backstop.
+                        val autoEnd = settings.autoStartTripOnConnect && recorder.activeTripId != null
+                        if (stoppedFor >= ENGINE_OFF_GRACE_MS && autoEnd) {
+                            appendLog("Engine stopped, ending trip")
+                            endTripIfRunning()
+                        }
+                        if (stoppedFor >= IDLE_DISCONNECT_MS) {
+                            idleShutdown = true
+                            return@withContext
+                        }
                     }
                 }
 
@@ -541,10 +596,38 @@ class ObdController(
      * an ECU that does not publish RPM. With neither, assume the engine is
      * running rather than cutting a real drive short.
      */
-    private fun isEngineRunning(values: Map<String, Float>): Boolean {
-        values[PidRegistry.RPM.key]?.let { return it > RUNNING_RPM }
-        values["runTime"]?.let { return it > 0f }
-        return true
+    /**
+     * What the engine is doing, as far as this cycle can tell.
+     *
+     * The distinction that matters is [IDLE_STOP] versus [UNKNOWN]. A car with
+     * stop/start cuts the engine at a light but leaves the ECU powered and
+     * answering, so a *fresh* zero from PID 010C means the engine is off and
+     * the car is still very much awake. Turning the key off instead takes the
+     * ECU with it and the reads simply stop coming back.
+     *
+     * Freshness is the whole trick: [values] keeps the last good reading until
+     * the PID is demoted, so a stale RPM would otherwise read as a running
+     * engine for several seconds after the ignition was cut.
+     */
+    private enum class EngineState { RUNNING, IDLE_STOP, UNKNOWN }
+
+    private fun engineState(
+        values: Map<String, Float>,
+        updatedAt: Map<String, Long>,
+        now: Long,
+    ): EngineState {
+        val fresh = updatedAt[PidRegistry.RPM.key] == now
+        if (fresh) {
+            val rpm = values[PidRegistry.RPM.key] ?: return EngineState.UNKNOWN
+            return if (rpm > RUNNING_RPM) EngineState.RUNNING else EngineState.IDLE_STOP
+        }
+        // No fresh tachometer this cycle. Run time still counts as proof of
+        // life on an ECU that answers 011F but was slow with 010C.
+        if (updatedAt["runTime"] == now) {
+            val runTime = values["runTime"] ?: 0f
+            return if (runTime > 0f) EngineState.RUNNING else EngineState.IDLE_STOP
+        }
+        return EngineState.UNKNOWN
     }
 
     /** @return false when the link is dead and the connection must be rebuilt. */

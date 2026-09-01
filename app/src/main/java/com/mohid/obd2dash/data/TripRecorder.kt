@@ -83,6 +83,8 @@ class TripRecorder(private val db: AppDatabase) {
     private var lastFuelAt = 0L
     private var lastLph: Float? = null
     private var fuelSource: FuelSource? = null
+    private var idleStopCount = 0
+    private var idleStopMs = 0L
 
     val activeTripId: Long? get() = tripId
 
@@ -96,6 +98,25 @@ class TripRecorder(private val db: AppDatabase) {
         get() = FuelEconomy.tripLitresPer100Km(fuelLitres, distance.totalMeters)
 
     val currentFuelSource: FuelSource? get() = fuelSource
+
+    val currentIdleStopCount: Int get() = idleStopCount
+
+    val currentIdleStopMs: Long get() = idleStopMs
+
+    /**
+     * One completed stop/start cut: engine off at a standstill with the ECU
+     * still answering, then running again.
+     *
+     * Recorded rather than merely tolerated because it is the only evidence
+     * the feature is working. A tally of nine stops totalling four minutes is
+     * the fuel the system actually saved, and a car whose count is zero over a
+     * whole city commute has a stop/start system that is giving up on it.
+     */
+    fun onIdleStop(durationMs: Long) {
+        if (tripId == null || durationMs <= 0) return
+        idleStopCount++
+        idleStopMs += durationMs
+    }
 
     suspend fun start(
         startedManually: Boolean,
@@ -253,6 +274,8 @@ class TripRecorder(private val db: AppDatabase) {
                     dtcCount = pendingCodes.size,
                     readinessIncomplete = readinessIncomplete,
                     readinessSupported = readinessSupported,
+                    idleStopCount = idleStopCount,
+                    idleStopMs = idleStopMs,
                     fuelLitres = fuelLitres.takeIf { it >= FuelEconomy.MIN_LITRES },
                     fuelEconomyLPer100 = FuelEconomy.tripLitresPer100Km(fuelLitres, distance.totalMeters),
                     fuelSource = fuelSource?.name,
@@ -299,6 +322,8 @@ class TripRecorder(private val db: AppDatabase) {
         lastFuelAt = 0L
         lastLph = null
         fuelSource = null
+        idleStopCount = 0
+        idleStopMs = 0L
     }
 
     /**
