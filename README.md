@@ -92,7 +92,7 @@ ECU does not publish: a car that answers twelve parameters gets twelve cards, no
 | **Knows when the engine stops** | The adapter is powered from OBD pin 16, so it stays alive with the car locked and a Bluetooth drop never means "engine off". Engine state is read from RPM instead. |
 | **Everything hand drawn** | Gauges, charts and the route trace are Compose canvas. No charting library, no Maps API key. |
 | **The route is the data** | The GPS track is coloured by speed, so where you pressed on shows up without reading a chart. |
-| **Nine gauge faces, one accent colour** | Hexa, Heritage in four bezel finishes, Cockpit, Circuit, or the original. Recolour the healthy band to taste, or leave the skin on Compare all and judge them side by side against live data. |
+| **Eight gauge faces, one accent colour** | Hexa, Heritage in four bezel finishes, Cockpit, Circuit, or the original. Recolour the healthy band to taste, or leave the skin on Compare all and judge them side by side against live data. |
 | **Built to be glanced at, not read** | A push-start button for trip recording and a segmented shift light bar across the top of the screen. |
 | **Finds the faults your dash hides** | The warning lamp only ever reflects *confirmed* codes. Pending codes (Mode 07) and permanent codes (Mode 0A) light nothing and are not counted by PID 0101, so both are read unconditionally, alongside the readiness monitors that reveal a recent code clear. |
 | **Sends a trip as one file** | Export any finished trip as a self-contained HTML report: tables, vector charts and the route in a single attachment with **no images at all**, or as raw CSV for a spreadsheet. |
