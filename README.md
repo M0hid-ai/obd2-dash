@@ -8,7 +8,7 @@
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-2025.06-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![Room](https://img.shields.io/badge/Room-2.7.2-FF6F00?style=flat-square&logo=sqlite&logoColor=white)](https://developer.android.com/training/data-storage/room)
-[![Tests](https://img.shields.io/badge/tests-61%20passing-2ED573?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-85%20passing-2ED573?style=flat-square)](#testing)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 <img src="docs/screenshots/dashboard-alert.png" width="260" alt="Live dashboard with a critical alert" />
@@ -365,7 +365,7 @@ debugging enabled:
 
 ```bash
 ./gradlew installDebug     # build and install over USB in one step
-./gradlew testDebugUnitTest  # 61 JVM tests, no device needed
+./gradlew testDebugUnitTest  # 85 JVM tests, no device needed
 ```
 
 The debug build installs alongside a release one — it uses the application ID suffix `.debug` — so
@@ -529,7 +529,7 @@ Deliberately not text to speech. Speech is slow to parse and easy to talk over.
 
 ## Testing
 
-61 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
+85 JVM tests, no device required. They concentrate on the places where a bug is silent, because a
 wrong decoder does not crash, it just shows you a plausible number that happens to be false.
 
 - reply sanitising: embedded spaces, `SEARCHING...` notices, multi-frame counters, truncated frames
