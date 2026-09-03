@@ -23,15 +23,6 @@ data class SeriesPoint(
 
 class TripRepository(private val db: AppDatabase) {
 
-    private companion object {
-        /**
-         * A half-hour trip at 3 Hz is ~5,000 samples. Charts are a few hundred
-         * pixels wide, so anything past this is invisible detail that only
-         * costs allocation and draw time.
-         */
-        const val MAX_CHART_POINTS = 480
-    }
-
     /**
      * The most recently read trip's raw samples.
      *
@@ -85,14 +76,7 @@ class TripRepository(private val db: AppDatabase) {
         db.readingDao().routeForTrip(tripId)
     }
 
-    /**
-     * Reads one metric back out as a chart series, downsampled to
-     * [MAX_CHART_POINTS] buckets.
-     *
-     * Each bucket keeps its most extreme value rather than its mean, so a brief
-     * coolant spike or an overboost survives the downsample. Losing those is
-     * exactly what makes a post-trip chart useless.
-     */
+    /** Reads one metric back out as a chart series, thinned by [ChartSeries]. */
     suspend fun series(tripId: Long, metricKey: String): List<SeriesPoint> =
         withContext(Dispatchers.IO) {
             val readings = readings(tripId)
@@ -104,7 +88,7 @@ class TripRepository(private val db: AppDatabase) {
                 val value = valueOf(reading, metricKey) ?: continue
                 raw += SeriesPoint(reading.timestamp - startedAt, value)
             }
-            downsample(raw)
+            ChartSeries.downsample(raw)
         }
 
     /** Which metrics this trip actually captured, in registry order. */
@@ -133,7 +117,7 @@ class TripRepository(private val db: AppDatabase) {
                 val value = valueOf(row, key) ?: continue
                 raw += SeriesPoint(row.timestamp - startedAt, value)
             }
-            downsample(raw)
+            ChartSeries.downsample(raw)
         }
         TripExportData(
             trip = trip,
@@ -163,25 +147,6 @@ class TripRepository(private val db: AppDatabase) {
         PidRegistry.COOLANT_TEMP.key -> reading.coolantC
         DerivedMetrics.BOOST.key -> reading.boostKpa
         else -> MetricPack.decode(reading.extraValues)[metricKey]
-    }
-
-    private fun downsample(points: List<SeriesPoint>): List<SeriesPoint> {
-        if (points.size <= MAX_CHART_POINTS) return points
-        val bucketSize = points.size.toDouble() / MAX_CHART_POINTS
-        val out = ArrayList<SeriesPoint>(MAX_CHART_POINTS)
-        var index = 0
-        while (index < points.size) {
-            val end = minOf(((out.size + 1) * bucketSize).toInt(), points.size)
-            if (end <= index) break
-            var pick = points[index]
-            for (i in index until end) {
-                // Keep whichever sample is furthest from zero so spikes survive.
-                if (kotlin.math.abs(points[i].value) > kotlin.math.abs(pick.value)) pick = points[i]
-            }
-            out += pick
-            index = end
-        }
-        return out
     }
 }
 
