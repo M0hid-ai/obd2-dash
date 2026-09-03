@@ -430,6 +430,12 @@ obd/
   ObdController.kt   Owns the connection, runs the poll loop
   transport/         BluetoothObdTransport (RFCOMM/SPP) and the simulator
 
+ai/
+  GeminiClient.kt        Shared HTTP/JSON plumbing for every AI request
+  VehicleIdentifier.kt   VIN to car name, validated against the local decode
+  TripAnalyst.kt         Post-trip diagnostic analysis prompt
+  TripBriefing.kt        Turns a finished trip into the text a model reads
+
 data/
   db/                Room entities and DAOs
   TripRecorder.kt    Batched sample writes, running aggregates, trip finalise
