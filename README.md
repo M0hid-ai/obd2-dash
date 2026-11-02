@@ -223,7 +223,7 @@ remaining budget as it can without pushing the cycle past the poll interval the 
 read is always taken however tight the budget, because a starved long tail is worse than a cycle that
 runs slightly long.
 
-Measured on the bench, with the frame-count hint enabled: 254 ms per cycle, 3.9 samples/s. Measured
+Measured on the bench, with the frame-count hint enabled: 253 ms per cycle, 3.9 samples/s. Measured
 on a real fifteen minute drive over an actual Bluetooth Classic connection: closer to **850 ms per
 cycle, 1.2 samples/s.** Real ECU turnaround over real radio is slower than it looks on a desk, and it
 is why alert hysteresis is [measured in time rather than a sample count](#why-alerts-need-hysteresis):
